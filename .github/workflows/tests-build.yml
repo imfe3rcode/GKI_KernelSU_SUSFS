@@ -12,6 +12,19 @@ on:
         required: true
         type: boolean
         default: false
+      kernel_version_to_build:
+        description: "Choose which kernel version to build"
+        required: true
+        type: choice
+        options:
+          - android12-5.10
+          - android13-5.10
+          - android13-5.15
+          - android14-5.15
+          - android14-6.1
+          - android15-6.6
+          - all
+        default: all
       ksun_branch:
         description: "Choose KernelSU Next Branch"
         required: true
@@ -20,6 +33,15 @@ on:
           - stable
           - next
         default: next
+      lto_mode:
+        description: "Choose LTO Mode"
+        required: true
+        type: choice
+        options:
+          - thin
+          - full
+          - none
+        default: thin
       android12_5_10_susfs_branch:
         description: "Choose SusFS Branch for android12-5.10"
         type: string
@@ -44,15 +66,6 @@ on:
         description: "Choose SusFS Branch for android15-6.6"
         type: string
         default: "gki-android15-6.6"
-      lto_mode:
-        description: "Choose LTO Mode"
-        required: true
-        type: choice
-        options:
-          - thin
-          - full
-          - none
-        default: thin
   push:
     branches: [ main, master ]
   pull_request:
@@ -65,6 +78,7 @@ env:
   DEFAULT_KSUN_BRANCH: next
   DEFAULT_LTO_MODE: thin
   DEFAULT_MAKE_RELEASE: false
+  DEFAULT_KERNEL_VERSION: all
 
 jobs:
   build-gki-kernels:
@@ -76,25 +90,46 @@ jobs:
           - android_version: android12
             kernel_version: "5.10"
             branch: common-android12-5.10
+            kernel_key: android12-5.10
           - android_version: android13
             kernel_version: "5.10"
             branch: common-android13-5.10
+            kernel_key: android13-5.10
           - android_version: android13
             kernel_version: "5.15"
             branch: common-android13-5.15
+            kernel_key: android13-5.15
           - android_version: android14
             kernel_version: "5.15"
             branch: common-android14-5.15
+            kernel_key: android14-5.15
           - android_version: android14
             kernel_version: "6.1"
             branch: common-android14-6.1
+            kernel_key: android14-6.1
           - android_version: android15
             kernel_version: "6.6"
             branch: common-android15-6.6
+            kernel_key: android15-6.6
     runs-on: ubuntu-latest
     
     steps:
+      - name: Check if this kernel version should be built
+        id: should-build
+        run: |
+          SELECTED_VERSION="${{ github.event.inputs.kernel_version_to_build || env.DEFAULT_KERNEL_VERSION }}"
+          CURRENT_VERSION="${{ matrix.kernel_key }}"
+          
+          if [[ "$SELECTED_VERSION" == "all" || "$SELECTED_VERSION" == "$CURRENT_VERSION" ]]; then
+            echo "should_build=true" >> $GITHUB_OUTPUT
+            echo "Building kernel version: $CURRENT_VERSION"
+          else
+            echo "should_build=false" >> $GITHUB_OUTPUT
+            echo "Skipping kernel version: $CURRENT_VERSION (selected: $SELECTED_VERSION)"
+          fi
+
       - name: Set build info
+        if: steps.should-build.outputs.should_build == 'true'
         id: build-info
         run: |
           KSUN_BRANCH="${{ github.event.inputs.ksun_branch || env.DEFAULT_KSUN_BRANCH }}"
@@ -104,6 +139,7 @@ jobs:
           echo "lto_mode=${LTO_MODE}" >> $GITHUB_OUTPUT
 
       - name: Maximize build space
+        if: steps.should-build.outputs.should_build == 'true'
         uses: easimon/maximize-build-space@master
         with:
           root-reserve-mb: 4096
@@ -114,6 +150,7 @@ jobs:
           remove-codeql: 'true'
 
       - name: Select Appropriate SusFS Branch
+        if: steps.should-build.outputs.should_build == 'true'
         id: get-susfs-branch
         run: |
           KERNEL_STRING="${{ matrix.android_version }}-${{ matrix.kernel_version }}"
@@ -150,6 +187,7 @@ jobs:
           echo "susfs_branch=$SUSFS_BRANCH" >> $GITHUB_OUTPUT
 
       - name: Setup Build Environment
+        if: steps.should-build.outputs.should_build == 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential bc bison flex libssl-dev libncurses5-dev \
@@ -157,19 +195,23 @@ jobs:
             rsync ccache repo
 
       - name: Setup ccache
+        if: steps.should-build.outputs.should_build == 'true'
         uses: hendrikmuhs/ccache-action@v1.2
         with:
           key: gki-${{ matrix.android_version }}-${{ matrix.kernel_version }}
           max-size: 2G
 
       - name: Checkout Code
+        if: steps.should-build.outputs.should_build == 'true'
         uses: actions/checkout@v4
 
       - name: Remove old files and folders
+        if: steps.should-build.outputs.should_build == 'true'
         run: |
           rm -rf susfs4ksu kernel_patches AnyKernel3-p8a common bootimgs
 
       - name: Clone dependencies
+        if: steps.should-build.outputs.should_build == 'true'
         run: |
           echo "Cloning SuSFS, kernel patches, and AnyKernel3..."
           git clone https://gitlab.com/simonpunk/susfs4ksu.git -b ${{ steps.get-susfs-branch.outputs.susfs_branch }}
@@ -177,12 +219,14 @@ jobs:
           git clone https://github.com/deepongi-labs/AnyKernel3-p8a -b gki-2.0
 
       - name: Initialize and sync kernel source
+        if: steps.should-build.outputs.should_build == 'true'
         run: |
           echo "Repo init and sync for ${{ matrix.branch }}..."
           repo init --depth=1 --u https://android.googlesource.com/kernel/manifest -b ${{ matrix.branch }}
           repo sync -c -j$(nproc --all) --no-tags --fail-fast
 
       - name: Setup KernelSU Next
+        if: steps.should-build.outputs.should_build == 'true'
         run: |
           cd common
           echo "Adding KSU-Next..."
@@ -190,6 +234,7 @@ jobs:
           curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/${KSUN_BRANCH}/kernel/setup.sh" | bash -s ${KSUN_BRANCH}
 
       - name: Apply SuSFS patches
+        if: steps.should-build.outputs.should_build == 'true'
         run: |
           cd common
           echo "Applying SUSFS patches..."
@@ -206,6 +251,7 @@ jobs:
           fi
 
       - name: Apply KernelSU Next patches
+        if: steps.should-build.outputs.should_build == 'true'
         run: |
           cd common/KernelSU-Next
           KSUN_BRANCH="${{ steps.build-info.outputs.ksun_branch }}"
@@ -218,6 +264,7 @@ jobs:
           curl -Ls "https://github.com/cvnertnc/KernelSU-Next/commit/6a7707dc38fc9217dbdc79fe471220383dec2369.patch" | patch -p1 --fuzz=3 || true
 
       - name: Apply additional patches
+        if: steps.should-build.outputs.should_build == 'true'
         run: |
           cd common
           echo "Applying hide stuff and manual hooks patches..."
@@ -231,6 +278,7 @@ jobs:
           rm -f android/abi_gki_protected_exports_* 2>/dev/null || true
 
       - name: Configure kernel
+        if: steps.should-build.outputs.should_build == 'true'
         run: |
           cd common
           echo "Adding kernel configurations..."
@@ -277,6 +325,7 @@ jobs:
           EOF
 
       - name: Modify build scripts
+        if: steps.should-build.outputs.should_build == 'true'
         run: |
           cd common
           # Modify version string
@@ -292,6 +341,7 @@ jobs:
           sed -i "s|build-timestamp = \$(or \$(KBUILD_BUILD_TIMESTAMP), \$(build-timestamp-auto))|build-timestamp = \"$(date -u +"%a %b %d %T UTC %Y")\"|" ./init/Makefile
 
       - name: Build kernel
+        if: steps.should-build.outputs.should_build == 'true'
         run: |
           cd common
           export USE_CCACHE=1
@@ -313,6 +363,7 @@ jobs:
           esac
 
       - name: Copy build artifacts
+        if: steps.should-build.outputs.should_build == 'true'
         run: |
           echo "Copying build artifacts..."
           mkdir -p bootimgs
@@ -328,6 +379,7 @@ jobs:
           cp -v ./bazel-bin/common/kernel_aarch64_gki_artifacts/boot-lz4.img ./bootimgs/
 
       - name: Create AnyKernel3 packages
+        if: steps.should-build.outputs.should_build == 'true'
         run: |
           TIMESTAMP=$(date +"%Y%m%d-%H%M")
           
@@ -361,6 +413,7 @@ jobs:
           mv bootimgs/boot-lz4.img "${{ matrix.android_version }}-${{ matrix.kernel_version }}-KSUN-LZ4-${TIMESTAMP}.img"
 
       - name: Upload artifacts
+        if: steps.should-build.outputs.should_build == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: gki-kernel-${{ matrix.android_version }}-${{ matrix.kernel_version }}
