@@ -53,10 +53,22 @@ on:
           - full
           - none
         default: thin
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  schedule:
+    - cron: '0 2 * * 0'  # Weekly builds on Sunday at 2 AM UTC
+
+env:
+  # Default values for automatic triggers
+  DEFAULT_KSUN_BRANCH: next
+  DEFAULT_LTO_MODE: thin
+  DEFAULT_MAKE_RELEASE: false
 
 jobs:
   build-gki-kernels:
-    name: Build GKI (${{ matrix.android_version }}, ${{ matrix.kernel_version }}, ${{ inputs.ksun_branch }}, LTO: ${{ inputs.lto_mode }})
+    name: Build GKI (${{ matrix.android_version }}, ${{ matrix.kernel_version }}, ${{ github.event.inputs.ksun_branch || env.DEFAULT_KSUN_BRANCH }}, LTO: ${{ github.event.inputs.lto_mode || env.DEFAULT_LTO_MODE }})
     strategy:
       fail-fast: false
       matrix:
@@ -99,22 +111,22 @@ jobs:
           
           case "$KERNEL_STRING" in
             "android12-5.10")
-              SUSFS_BRANCH="${{ inputs.android12_5_10_susfs_branch }}"
+              SUSFS_BRANCH="${{ github.event.inputs.android12_5_10_susfs_branch || 'gki-android12-5.10' }}"
               ;;
             "android13-5.10")
-              SUSFS_BRANCH="${{ inputs.android13_5_10_susfs_branch }}"
+              SUSFS_BRANCH="${{ github.event.inputs.android13_5_10_susfs_branch || 'gki-android13-5.10' }}"
               ;;
             "android13-5.15")
-              SUSFS_BRANCH="${{ inputs.android13_5_15_susfs_branch }}"
+              SUSFS_BRANCH="${{ github.event.inputs.android13_5_15_susfs_branch || 'gki-android13-5.15' }}"
               ;;
             "android14-5.15")
-              SUSFS_BRANCH="${{ inputs.android14_5_15_susfs_branch }}"
+              SUSFS_BRANCH="${{ github.event.inputs.android14_5_15_susfs_branch || 'gki-android14-5.15' }}"
               ;;
             "android14-6.1")
-              SUSFS_BRANCH="${{ inputs.android14_6_1_susfs_branch }}"
+              SUSFS_BRANCH="${{ github.event.inputs.android14_6_1_susfs_branch || 'gki-android14-6.1' }}"
               ;;
             "android15-6.6")
-              SUSFS_BRANCH="${{ inputs.android15_6_6_susfs_branch }}"
+              SUSFS_BRANCH="${{ github.event.inputs.android15_6_6_susfs_branch || 'gki-android15-6.6' }}"
               ;;
             *)
               echo "Invalid kernel version or unsupported: $KERNEL_STRING"
@@ -165,7 +177,8 @@ jobs:
         run: |
           cd common
           echo "Adding KSU-Next..."
-          curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/${{ inputs.ksun_branch }}/kernel/setup.sh" | bash -s ${{ inputs.ksun_branch }}
+          KSUN_BRANCH="${{ github.event.inputs.ksun_branch || env.DEFAULT_KSUN_BRANCH }}"
+          curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/${KSUN_BRANCH}/kernel/setup.sh" | bash -s ${KSUN_BRANCH}
 
       - name: Apply SuSFS patches
         run: |
@@ -186,8 +199,9 @@ jobs:
       - name: Apply KernelSU Next patches
         run: |
           cd common/KernelSU-Next
-          if [ -f "../../kernel_patches/${{ inputs.ksun_branch }}/0001-kernel-implement-susfs-v1.5.8-KernelSU-Next-v1.0.8.patch" ]; then
-            cp -v ../../kernel_patches/${{ inputs.ksun_branch }}/0001-kernel-implement-susfs-v1.5.8-KernelSU-Next-v1.0.8.patch ./
+          KSUN_BRANCH="${{ github.event.inputs.ksun_branch || env.DEFAULT_KSUN_BRANCH }}"
+          if [ -f "../../kernel_patches/${KSUN_BRANCH}/0001-kernel-implement-susfs-v1.5.8-KernelSU-Next-v1.0.8.patch" ]; then
+            cp -v ../../kernel_patches/${KSUN_BRANCH}/0001-kernel-implement-susfs-v1.5.8-KernelSU-Next-v1.0.8.patch ./
             patch -p1 --fuzz=3 < 0001-kernel-implement-susfs-v1.5.8-KernelSU-Next-v1.0.8.patch
           fi
           
@@ -274,9 +288,10 @@ jobs:
           export USE_CCACHE=1
           export CCACHE_DIR=$HOME/.ccache
           
-          echo "Building kernel with LTO mode: ${{ inputs.lto_mode }}"
+          LTO_MODE="${{ github.event.inputs.lto_mode || env.DEFAULT_LTO_MODE }}"
+          echo "Building kernel with LTO mode: $LTO_MODE"
           
-          case "${{ inputs.lto_mode }}" in
+          case "$LTO_MODE" in
             "full")
               ../tools/bazel build --config=fast --lto=full //common:kernel_aarch64_dist
               ;;
@@ -348,7 +363,7 @@ jobs:
   trigger-release:
     needs: build-gki-kernels
     runs-on: ubuntu-latest
-    if: ${{ inputs.make_release }}
+    if: ${{ github.event.inputs.make_release == 'true' || env.DEFAULT_MAKE_RELEASE == 'true' }}
     env:
       REPO_OWNER: ${{ github.repository_owner }}
       REPO_NAME: ${{ github.event.repository.name }}
