@@ -491,7 +491,7 @@ jobs:
           
           ### Features:
           - KernelSU-Next (${{ inputs.ksun_branch }} branch)
-          - SUSFS v1.5.8
+          - SUSFSඞ v1.5.8
           - Scope-Minimized Manual hooks v1.4
           - Magic Mount Support
           - Simple Maphide for LineageOS Detections
@@ -503,7 +503,7 @@ jobs:
           - KernelSU-Next, SUS SU Mode 2 will show as disabled or not compatible due to non-kprobe hooks and is not needed anymore!
           - Official Kernel Flasher is broken with latest susfs, try:
             - https://github.com/fatalcoder524/KernelFlasher/
-            - https://github.com/libxzr/HorizonKernelFlasher!
+            - https://github.com/libxzr/HorizonKernelFlasher/
           
           ### Module:
           - SUSFS Module: https://github.com/sidex15/ksu_module_susfs
@@ -517,7 +517,7 @@ jobs:
           - Kernel Version: ${{ needs.build-gki.outputs.kernel_full_version }}
           - KernelSU Branch: ${{ inputs.ksun_branch }}
           - SUSFS Branch: ${{ inputs.susfs_branch }}
-          - Build Date: $(date -u +"%Y-%m-%d %H:%M UTC")
+          - Build Date: ${BUILD_DATE}
           EOF
 
       - name: Create GitHub Release
