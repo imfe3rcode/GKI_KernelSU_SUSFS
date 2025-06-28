@@ -142,7 +142,7 @@ jobs:
               ;;
             "android14-6.1")
               KERNEL_VERSION="6.1"
-              MANIFEST_BRANCH="common-android14-6.1"
+              MANIFEST_BRANCH="common-android14-6.1-2025-06"
               ;;
             "android15-6.6")
               KERNEL_VERSION="6.6"
