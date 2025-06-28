@@ -40,7 +40,6 @@ on:
         options:
           - thin
           - full
-          - none
         default: thin
       android12_5_10_susfs_branch:
         description: "Choose SusFS Branch for android12-5.10"
@@ -356,9 +355,6 @@ jobs:
               ;;
             "thin")
               ../tools/bazel build --config=fast --lto=thin //common:kernel_aarch64_dist
-              ;;
-            "none")
-              ../tools/bazel build --config=fast --lto=none //common:kernel_aarch64_dist
               ;;
           esac
 
