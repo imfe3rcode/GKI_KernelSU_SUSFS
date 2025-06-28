@@ -167,12 +167,22 @@ jobs:
           
           echo "CONFIG установлено в: $CONFIG"
 
-      - name: Установка ccache и bazel
+      - name: Установка ccache
         if: steps.should-build.outputs.should_build == 'true'
         run: |
           sudo apt update
-          sudo apt install -y ccache bazel
-          bazel version || { echo "Ошибка: bazel не установлен"; exit 1; }
+          sudo apt install -y ccache
+
+      - name: Установка bazel
+        if: steps.should-build.outputs.should_build == 'true'
+        run: |
+          BAZEL_VERSION="6.5.0"
+          echo "Установка bazel версии $BAZEL_VERSION..."
+          curl -LO "https://github.com/bazelbuild/bazel/releases/download/$BAZEL_VERSION/bazel-$BAZEL_VERSION-linux-x86_64"
+          chmod +x bazel-$BAZEL_VERSION-linux-x86_64
+          sudo mv bazel-$BAZEL_VERSION-linux-x86_64 /usr/local/bin/bazel
+          bazel version || { echo "Ошибка: не удалось установить bazel"; exit 1; }
+          echo "BAZEL_PATH=/usr/local/bin/bazel" >> $GITHUB_ENV
 
       - name: Настройка ccache
         if: steps.should-build.outputs.should_build == 'true'
@@ -190,14 +200,13 @@ jobs:
           BRANCH=main-kernel-build-2024
           git clone $AOSP_MIRROR/kernel/prebuilts/build-tools -b $BRANCH --depth 1 kernel-build-tools
           git clone $AOSP_MIRROR/platform/system/tools/mkbootimg -b $BRANCH --depth 1 mkbootimg
-          # Проверка наличия bazel в инструментарии
+          # Проверка наличия bazel в инструментарии (на случай, если он там есть)
           if [ -f "./kernel-build-tools/tools/bazel" ]; then
             echo "bazel найден в kernel-build-tools/tools/bazel"
             chmod +x ./kernel-build-tools/tools/bazel
             echo "BAZEL_PATH=$GITHUB_WORKSPACE/kernel-build-tools/tools/bazel" >> $GITHUB_ENV
           else
-            echo "bazel не найден в kernel-build-tools, используется системный bazel"
-            echo "BAZEL_PATH=/usr/bin/bazel" >> $GITHUB_ENV
+            echo "bazel не найден в kernel-build-tools, используется /usr/local/bin/bazel"
           fi
 
       - name: Установка переменных окружения для инструментария
@@ -233,7 +242,7 @@ jobs:
         if: steps.should-build.outputs.should_build == 'true'
         run: |
           echo "Клонирование SuSFS, патчей ядра и AnyKernel3..."
-          git clone https://gitlab.com/simonpunk/susfs4ksu.git -b ${{ steps.get-susfs-branch.outputs.susfs_branch }}
+          git clone https://gitlab.com/simonpunk/susfs4ksu.git -b ${{ github.event.inputs[format('{0}_susfs_branch', matrix.kernel_key)] || format('gki-{0}', matrix.kernel_key) }}
           git clone https://github.com/infectedmushi/kernel_patches -b main
           git clone https://github.com/deepongi-labs/AnyKernel3-p8a -b gki-2.0
 
@@ -275,12 +284,12 @@ jobs:
           echo "Применение патчей SUSFS..."
           
           # Проверка наличия файла патча для данной версии ядра
-          PATCH_FILE="../susfs4ksu/kernel_patches/50_add_susfs_in_${{ steps.get-susfs-branch.outputs.susfs_branch }}.patch"
+          PATCH_FILE="../susfs4ksu/kernel_patches/50_add_susfs_in_${{ github.event.inputs[format('{0}_susfs_branch', matrix.kernel_key)] || format('gki-{0}', matrix.kernel_key) }}.patch"
           if [ -f "$PATCH_FILE" ]; then
             cp -v "$PATCH_FILE" ./
             cp -v ../susfs4ksu/kernel_patches/fs/* ./fs/ 2>/dev/null || true
             cp -v ../susfs4ksu/kernel_patches/include/linux/* ./include/linux/ 2>/dev/null || true
-            patch -p1 --forward --fuzz=3 < "50_add_susfs_in_${{ steps.get-susfs-branch.outputs.susfs_branch }}.patch"
+            patch -p1 --forward --fuzz=3 < "50_add_susfs_in_${{ github.event.inputs[format('{0}_susfs_branch', matrix.kernel_key)] || format('gki-{0}', matrix.kernel_key) }}.patch"
           else
             echo "Предупреждение: патч SuSFS не найден для этой версии ядра"
           fi
@@ -409,205 +418,3 @@ jobs:
         if: ${{ steps.should-build.outputs.should_build == 'true' && (matrix.android_version == 'android14' || matrix.android_version == 'android15') }}
         run: |
           mkdir -p bootimgs
-          echo "Создание папки bootimgs и копирование образов..."
-          cp -v ./$CONFIG/bazel-bin/common/kernel_aarch64/Image ./bootimgs
-          cp -v ./$CONFIG/bazel-bin/common/kernel_aarch64/Image.lz4 ./bootimgs
-          cp -v ./$CONFIG/bazel-bin/common/kernel_aarch64/Image ./
-          cp -v ./$CONFIG/bazel-bin/common/kernel_aarch64/Image.lz4 ./
-          
-          # Создание gzip-образа файла Image
-          gzip -n -k -f -9 ./Image > ./Image.gz
-
-      - name: Создание ZIP-файлов для разных форматов
-        if: steps.should-build.outputs.should_build == 'true'
-        run: |
-          echo "Создание ZIP-файлов для всех форматов..."
-          cd ./AnyKernel3-p8a
-          
-          TIMESTAMP=$(date +"%Y%m%d-%H%M")
-          
-          # Создание ZIP для формата RAW
-          ZIP_NAME="AK3-${{ matrix.android_version }}-${{ matrix.kernel_version }}-KSUN-RAW-${TIMESTAMP}.zip"
-          echo "Создание ZIP-файла: $ZIP_NAME..."
-          mv ../Image ./Image
-          zip -r "../$ZIP_NAME" ./*
-          rm ./Image
-          
-          # Создание ZIP для формата LZ4
-          ZIP_NAME="AK3-${{ matrix.android_version }}-${{ matrix.kernel_version }}-KSUN-LZ4-${TIMESTAMP}.zip"
-          echo "Создание ZIP-файла: $ZIP_NAME..."
-          mv ../Image.lz4 ./Image.lz4
-          zip -r "../$ZIP_NAME" ./*
-          rm ./Image.lz4
-          
-          # Создание ZIP для формата GZ
-          ZIP_NAME="AK3-${{ matrix.android_version }}-${{ matrix.kernel_version }}-KSUN-GZ-${TIMESTAMP}.zip"
-          echo "Создание ZIP-файла: $ZIP_NAME..."
-          mv ../Image.gz ./Image.gz
-          zip -r "../$ZIP_NAME" ./*
-          rm ./Image.gz
-
-      - name: Сборка загрузочного образа для Android 12
-        if: ${{ steps.should-build.outputs.should_build == 'true' && matrix.android_version == 'android12' }}
-        run: |
-          cd bootimgs
-          
-          GKI_URL=https://dl.google.com/android/gki/gki-certified-boot-android12-5.10-2023-01_r1.zip
-          
-          echo "Загрузка GKI ядра..."
-          curl -Lo gki-kernel.zip "$GKI_URL"
-          
-          echo "Распаковка загруженного ядра..."
-          unzip gki-kernel.zip && rm gki-kernel.zip
-          
-          echo "Распаковка boot.img..."
-          FULL_PATH=$(pwd)/boot-5.10.img
-          echo "Распаковка с использованием: $FULL_PATH"
-          
-          $UNPACK_BOOTIMG --boot_img="$FULL_PATH"
-          
-          # Создание gzip-образа файла Image
-          gzip -n -k -f -9 ./Image > ./Image.gz
-          
-          echo "Сборка boot.img"
-          $MKBOOTIMG --header_version 4 --kernel Image --output boot.img --ramdisk out/ramdisk --os_version 12.0.0 --os_patch_level 2023-01
-          $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
-          cp ./boot.img ../${{ matrix.android_version }}-${{ matrix.kernel_version }}-KSUN-RAW-$(date +"%Y%m%d-%H%M").img
-          
-          echo "Сборка boot-gz.img"
-          $MKBOOTIMG --header_version 4 --kernel Image.gz --output boot-gz.img --ramdisk out/ramdisk --os_version 12.0.0 --os_patch_level 2023-01
-          $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-gz.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
-          cp ./boot-gz.img ../${{ matrix.android_version }}-${{ matrix.kernel_version }}-KSUN-GZ-$(date +"%Y%m%d-%H%M").img
-          
-          echo "Сборка boot-lz4.img"
-          $MKBOOTIMG --header_version 4 --kernel Image.lz4 --output boot-lz4.img --ramdisk out/ramdisk --os_version 12.0.0 --os_patch_level 2023-01
-          $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-lz4.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
-          cp ./boot-lz4.img ../${{ matrix.android_version }}-${{ matrix.kernel_version }}-KSUN-LZ4-$(date +"%Y%m%d-%H%M").img
-
-      - name: Сборка загрузочного образа для Android 13/14/15
-        if: ${{ steps.should-build.outputs.should_build == 'true' && (matrix.android_version == 'android13' || matrix.android_version == 'android14' || matrix.android_version == 'android15') }}
-        run: |
-          cd bootimgs
-          
-          # Создание gzip-образа файла Image
-          gzip -n -k -f -9 ./Image > ./Image.gz
-          
-          echo "Сборка boot.img"
-          $MKBOOTIMG --header_version 4 --kernel Image --output boot.img
-          $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
-          cp ./boot.img ../${{ matrix.android_version }}-${{ matrix.kernel_version }}-KSUN-RAW-$(date +"%Y%m%d-%H%M").img
-          
-          echo "Сборка boot-gz.img"
-          $MKBOOTIMG --header_version 4 --kernel Image.gz --output boot-gz.img
-          $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-gz.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
-          cp ./boot-gz.img ../${{ matrix.android_version }}-${{ matrix.kernel_version }}-KSUN-GZ-$(date +"%Y%m%d-%H%M").img
-          
-          echo "Сборка boot-lz4.img"
-          $MKBOOTIMG --header_version 4 --kernel Image.lz4 --output boot-lz4.img
-          $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-lz4.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
-          cp ./boot-lz4.img ../${{ matrix.android_version }}-${{ matrix.kernel_version }}-KSUN-LZ4-$(date +"%Y%m%d-%H%M").img
-
-      - name: Сжатие всех img-файлов с помощью gzip
-        if: steps.should-build.outputs.should_build == 'true'
-        run: |
-          for image in *.img; do
-            gzip -vnf9 "$image"
-          done
-
-      - name: Загрузка артефактов
-        if: steps.should-build.outputs.should_build == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: gki-kernel-${{ matrix.android_version }}-${{ matrix.kernel_version }}
-          path: |
-            *.zip
-            *.img
-            *.img.gz
-          retention-days: 30
-
-  trigger-release:
-    needs: build-gki-kernels
-    runs-on: ubuntu-latest
-    if: ${{ github.event.inputs.make_release == 'true' }}
-    env:
-      REPO_OWNER: ${{ github.repository_owner }}
-      REPO_NAME: ${{ github.event.repository.name }}
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      RELEASE_NAME: "*ТЕСТОВАЯ СБОРКА* GKI Kernels с KernelSU Next и SUSFS v1.5.8 *ТЕСТОВАЯ СБОРКА*"
-      RELEASE_NOTES: |
-        Этот релиз содержит KernelSU Next и SUSFS v1.5.8 для различных версий ядер GKI
-        
-        Модуль: 
-        -> https://github.com/sidex15/ksu_module_susfs
-
-        Неофициальные менеджеры:
-        -> https://github.com/KernelSU-Next/KernelSU-Next
-
-        Особенности:
-        [+] KernelSU-Next
-        [+] SUSFS v1.5.8
-        [+] Поддержка Wireguard
-        [+] Maphide для обнаружения LineageOS
-        [+] Futile Maphide для обнаружения jit-zygote-cache
-        [+] Поддержка Magic Mount
-        [+] Исправление утечки сообщений ptrace для ядер < 5.16
-        [+] Ручные хуки [scope_min_manual_hooks_v1.5]
-        [+] Поддержка CONFIG_TMPFS_XATTR [Поддержка Mountify]
-        [+] Поддержка BBR v1
-
-    steps:
-      - name: Получение исходного кода
-        uses: actions/checkout@v4
-
-      - name: Создание и пуш нового тега
-        run: |
-          BASE_TAG="v1.5.8-gki-r0"
-          LATEST_TAG=$(gh api repos/$REPO_OWNER/$REPO_NAME/tags --jq '.[0].name' 2>/dev/null || echo "")
-          
-          if [ -z "$LATEST_TAG" ] || [[ ! "$LATEST_TAG" =~ gki ]]; then
-            NEW_TAG="$BASE_TAG"
-          else
-            NEW_TAG=$(echo "$LATEST_TAG" | awk -F'-r' '{suffix=$2; if (!suffix) suffix=0; suffix++; printf "%s-r%d", $1, suffix}')
-          fi
-          
-          echo "Новый тег: $NEW_TAG"
-          echo "NEW_TAG=${NEW_TAG}" >> $GITHUB_ENV
-          
-          git tag $NEW_TAG
-          git push origin $NEW_TAG
-
-      - name: Загрузка артефактов
-        uses: actions/download-artifact@v4
-        with:
-          path: ./downloaded-artifacts
-
-      - name: Создание релиза GitHub
-        id: create_release
-        uses: actions/create-release@v1
-        with:
-          tag_name: ${{ env.NEW_TAG }}
-          prerelease: true
-          release_name: ${{ env.RELEASE_NAME }}
-          body: ${{ env.RELEASE_NOTES }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Динамическая загрузка активов релиза
-        run: |
-          for dir in ./downloaded-artifacts/gki-kernel-*; do
-            if [ -d "$dir" ]; then
-              for file in "$dir"/*; do
-                if [ -f "$file" ]; then
-                  echo "Загрузка $file..."
-                  gh release upload ${{ env.NEW_TAG }} "$file"
-                fi
-              done
-            fi
-          done
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Отображение загруженных файлов
-        run: |
-          echo "Релиз GitHub создан со следующими файлами:"
-          find ./downloaded-artifacts -type f -name "*.zip" -o -name "*.img" -o -name "*.img.gz" | sort
