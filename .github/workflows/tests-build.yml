@@ -417,3 +417,4 @@ jobs:
           elif [ "${{ inputs.release_type }}" == "Pre-Release" ]; then
             gh release create "${{ env.NEW_TAG }}" --title "Pre-Release ${{ env.NEW_TAG }}" --notes-file release_body.md --prerelease
           fi
+          
