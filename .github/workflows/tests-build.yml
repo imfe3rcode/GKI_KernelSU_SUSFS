@@ -45,16 +45,6 @@ on:
         description: "Choose SusFS Branch"
         type: string
         default: "gki-android14-6.1"
-      sub_level:
-        description: 'Sub Level'
-        required: true
-        default: '138'
-        type: string
-      os_patch_level:
-        description: 'OS Patch Level'
-        required: true
-        default: '2024-11'
-        type: string
 
 jobs:
   build-gki:
@@ -66,6 +56,12 @@ jobs:
       CCACHE_NOHASHDIR: "true"
       CCACHE_HARDLINK: "true"
       USE_CCACHE: "true"
+    
+    outputs:
+      timestamp: ${{ steps.set-env.outputs.timestamp }}
+      new_tag: ${{ steps.set-env.outputs.new_tag }}
+      kernel_full_version: ${{ steps.kernel-version.outputs.kernel_full_version }}
+      kernel_sublevel: ${{ steps.kernel-version.outputs.kernel_sublevel }}
     
     steps:
       - name: Checkout Code
@@ -111,9 +107,14 @@ jobs:
           echo "CCACHE_DIR=$HOME/.ccache" >> $GITHUB_ENV
 
       - name: Set Environment Variables
+        id: set-env
         run: |
-          echo "TIMESTAMP=$(date +%Y%m%d-%H%M)" >> $GITHUB_ENV
-          echo "NEW_TAG=GKI-${{ inputs.android_version }}-KSUN-$(date +%Y%m%d-%H%M)" >> $GITHUB_ENV
+          TIMESTAMP=$(date +%Y%m%d-%H%M)
+          NEW_TAG=GKI-${{ inputs.android_version }}-KSUN-$(date +%Y%m%d-%H%M)
+          echo "TIMESTAMP=$TIMESTAMP" >> $GITHUB_ENV
+          echo "NEW_TAG=$NEW_TAG" >> $GITHUB_ENV
+          echo "timestamp=$TIMESTAMP" >> $GITHUB_OUTPUT
+          echo "new_tag=$NEW_TAG" >> $GITHUB_OUTPUT
 
       - name: Determine Build Parameters
         id: build-params
@@ -121,27 +122,27 @@ jobs:
           case "${{ inputs.android_version }}" in
             "android12-5.10")
               KERNEL_VERSION="5.10"
-              MANIFEST_BRANCH="common-android12-5.10-${{ inputs.os_patch_level }}"
+              MANIFEST_BRANCH="common-android12-5.10"
               ;;
             "android13-5.10")
               KERNEL_VERSION="5.10"
-              MANIFEST_BRANCH="common-android13-5.10-${{ inputs.os_patch_level }}"
+              MANIFEST_BRANCH="common-android13-5.10"
               ;;
             "android13-5.15")
               KERNEL_VERSION="5.15"
-              MANIFEST_BRANCH="common-android13-5.15-${{ inputs.os_patch_level }}"
+              MANIFEST_BRANCH="common-android13-5.15"
               ;;
             "android14-5.15")
               KERNEL_VERSION="5.15"
-              MANIFEST_BRANCH="common-android14-5.15-${{ inputs.os_patch_level }}"
+              MANIFEST_BRANCH="common-android14-5.15"
               ;;
             "android14-6.1")
               KERNEL_VERSION="6.1"
-              MANIFEST_BRANCH="common-android14-6.1-${{ inputs.os_patch_level }}"
+              MANIFEST_BRANCH="common-android14-6.1"
               ;;
             "android15-6.6")
               KERNEL_VERSION="6.6"
-              MANIFEST_BRANCH="common-android15-6.6-${{ inputs.os_patch_level }}"
+              MANIFEST_BRANCH="common-android15-6.6"
               ;;
             *)
               echo "Unsupported Android version: ${{ inputs.android_version }}"
@@ -199,6 +200,37 @@ jobs:
           
           echo "Syncing sources..."
           repo sync -c -j$(nproc) --no-tags --fail-fast
+
+      - name: Get Latest Kernel Version and Update Makefile
+        id: kernel-version
+        run: |
+          cd common
+          echo "Getting latest kernel version from ${{ inputs.android_version }} branch..."
+          
+          # Скачиваем Makefile из соответствующей ветки для получения актуальной версии
+          curl -s "https://android.googlesource.com/kernel/common/+/refs/heads/${{ inputs.android_version }}/Makefile?format=TEXT" | base64 -d > Makefile.latest
+          
+          # Извлекаем версии из Makefile
+          VERSION=$(grep "^VERSION = " Makefile.latest | head -1 | cut -d' ' -f3)
+          PATCHLEVEL=$(grep "^PATCHLEVEL = " Makefile.latest | head -1 | cut -d' ' -f3)
+          SUBLEVEL=$(grep "^SUBLEVEL = " Makefile.latest | head -1 | cut -d' ' -f3)
+          
+          echo "Latest kernel version: $VERSION.$PATCHLEVEL.$SUBLEVEL"
+          KERNEL_FULL_VERSION="$VERSION.$PATCHLEVEL.$SUBLEVEL"
+          echo "KERNEL_FULL_VERSION=$KERNEL_FULL_VERSION" >> $GITHUB_ENV
+          echo "KERNEL_SUBLEVEL=$SUBLEVEL" >> $GITHUB_ENV
+          echo "kernel_full_version=$KERNEL_FULL_VERSION" >> $GITHUB_OUTPUT
+          echo "kernel_sublevel=$SUBLEVEL" >> $GITHUB_OUTPUT
+          
+          # Создаем бэкап текущего Makefile
+          cp Makefile Makefile.backup
+          
+          # Заменяем Makefile на актуальный
+          mv Makefile.latest Makefile
+          
+          echo "Makefile updated successfully"
+          echo "Current kernel version info:"
+          head -10 Makefile | grep -E "VERSION|PATCHLEVEL|SUBLEVEL"
 
       - name: Setup KernelSU Next
         run: |
@@ -330,21 +362,21 @@ jobs:
           # Create LZ4 ZIP
           cd AnyKernel3-p8a
           cp ../bootimgs/Image.lz4 ./
-          ZIP_NAME_LZ4="AK3-GKI-${ANDROID_VER}-${KERNEL_VER}.${{ inputs.sub_level }}-KSUN-LZ4-${TIMESTAMP}.zip"
+          ZIP_NAME_LZ4="AK3-GKI-${ANDROID_VER}-${KERNEL_VER}.${{ env.KERNEL_SUBLEVEL }}-KSUN-LZ4-${{ env.TIMESTAMP }}.zip"
           zip -r "$ZIP_NAME_LZ4" ./*
           mv "$ZIP_NAME_LZ4" ../
           rm Image.lz4
           
           # Create GZ ZIP
           cp ../bootimgs/Image.gz ./
-          ZIP_NAME_GZ="AK3-GKI-${ANDROID_VER}-${KERNEL_VER}.${{ inputs.sub_level }}-KSUN-GZ-${TIMESTAMP}.zip"
+          ZIP_NAME_GZ="AK3-GKI-${ANDROID_VER}-${KERNEL_VER}.${{ env.KERNEL_SUBLEVEL }}-KSUN-GZ-${{ env.TIMESTAMP }}.zip"
           zip -r "$ZIP_NAME_GZ" ./*
           mv "$ZIP_NAME_GZ" ../
           rm Image.gz
           
           # Create RAW ZIP
           cp ../bootimgs/Image ./
-          ZIP_NAME_RAW="AK3-GKI-${ANDROID_VER}-${KERNEL_VER}.${{ inputs.sub_level }}-KSUN-RAW-${TIMESTAMP}.zip"
+          ZIP_NAME_RAW="AK3-GKI-${ANDROID_VER}-${KERNEL_VER}.${{ env.KERNEL_SUBLEVEL }}-KSUN-RAW-${{ env.TIMESTAMP }}.zip"
           zip -r "$ZIP_NAME_RAW" ./*
           mv "$ZIP_NAME_RAW" ../
           rm Image
@@ -352,9 +384,9 @@ jobs:
           cd ..
           
           # Rename boot images
-          mv bootimgs/boot.img "GKI-${ANDROID_VER}-${KERNEL_VER}.${{ inputs.sub_level }}-KSUN-RAW-${TIMESTAMP}.img"
-          mv bootimgs/boot-gz.img "GKI-${ANDROID_VER}-${KERNEL_VER}.${{ inputs.sub_level }}-KSUN-GZ-${TIMESTAMP}.img"
-          mv bootimgs/boot-lz4.img "GKI-${ANDROID_VER}-${KERNEL_VER}.${{ inputs.sub_level }}-KSUN-LZ4-${TIMESTAMP}.img"
+          mv bootimgs/boot.img "GKI-${ANDROID_VER}-${KERNEL_VER}.${{ env.KERNEL_SUBLEVEL }}-KSUN-RAW-${{ env.TIMESTAMP }}.img"
+          mv bootimgs/boot-gz.img "GKI-${ANDROID_VER}-${KERNEL_VER}.${{ env.KERNEL_SUBLEVEL }}-KSUN-GZ-${{ env.TIMESTAMP }}.img"
+          mv bootimgs/boot-lz4.img "GKI-${ANDROID_VER}-${KERNEL_VER}.${{ env.KERNEL_SUBLEVEL }}-KSUN-LZ4-${{ env.TIMESTAMP }}.img"
 
       - name: Get commit hashes for release
         if: ${{ inputs.make_release && inputs.release_type != 'Actions' }}
@@ -370,51 +402,6 @@ jobs:
           echo "NEXT_REF=$(git rev-parse HEAD | cut -c1-7)" >> $GITHUB_ENV
           echo "NEXT_URL=https://github.com/rifsxd/KernelSU-Next/commit/$(git rev-parse HEAD)" >> $GITHUB_ENV
           cd ../..
-
-      - name: Set release body
-        if: ${{ inputs.make_release && inputs.release_type != 'Actions' }}
-        run: |
-          cat << 'EOF' > release_body.md
-          ## GKI KernelSU-Next Build - ${{ env.NEW_TAG }}
-          
-          **Branch type for KSU:** KernelSU-Next (${{ inputs.ksun_branch }})
-          **Current Kernel Tag:** ${{ env.NEW_TAG }}
-          
-          ### Features:
-          - KernelSU-Next (${{ inputs.ksun_branch }} branch)
-          - SUSFS v1.5.8
-          - Scope-Minimized Manual hooks v1.4
-          - Magic Mount Support
-          - Simple Maphide for LineageOS Detections
-          - Futile Maphide for jit-zygote-cache Detections
-          - Wireguard Support
-          - BBR Support
-          
-          ### Notes:
-          - KernelSU-Next, SUS SU Mode 2 will show as disabled or not compatible due to non-kprobe hooks and is not needed anymore!
-          - Official Kernel Flasher is broken with latest susfs, try:
-            - https://github.com/fatalcoder524/KernelFlasher/
-            - https://github.com/libxzr/HorizonKernelFlasher!
-          
-          ### Module:
-          - SUSFS Module: https://github.com/sidex15/ksu_module_susfs
-          
-          ### Managers:
-          - KernelSU: https://github.com/tiann/KernelSU / https://t.me/KernelSU_group
-          - KernelSU-Next: https://github.com/rifsxd/KernelSU-Next / https://t.me/ksunext_group
-          
-          ### Commit Hashes (at the time of release):
-          - KernelSU Next (${{ inputs.ksun_branch }}): [${{ env.NEXT_REF }}](${{ env.NEXT_URL }})
-          - SUSFS4KSU ${{ inputs.susfs_branch }}: [${{ env.SUSFS_COMMIT_HASH }}](${{ env.SUSFS_COMMIT_URL }})
-          
-          ### Build Info:
-          - Android Version: ${{ inputs.android_version }}
-          - Kernel Version: ${{ steps.build-params.outputs.kernel_version }}.${{ inputs.sub_level }}
-          - OS Patch Level: ${{ inputs.os_patch_level }}
-          - KernelSU Branch: ${{ inputs.ksun_branch }}
-          - SUSFS Branch: ${{ inputs.susfs_branch }}
-          - Build Date: $(date -u +"%Y-%m-%d %H:%M UTC")
-          EOF
 
       - name: Upload Build Artifacts (Actions only)
         if: ${{ inputs.make_release && inputs.release_type == 'Actions' }}
@@ -452,21 +439,88 @@ jobs:
       - name: Generate and Create New Tag
         run: |
           BASE_TAG="v1.5.8-gki-r0"
-          LATEST_TAG=$(gh api repos/$REPO_OWNER/$REPO_NAME/tags --jq '.[0].name' || echo "$BASE_TAG")
-          if [[ "$LATEST_TAG" == *"gki"* ]]; then
-            NEW_TAG=$(echo "$LATEST_TAG" | awk -F'-r' '{suffix=$2; if (!suffix) suffix=0; suffix++; printf "%s-r%d", $1, suffix}')
-          else
+          
+          # Check if any tags exist at all
+          LATEST_TAG=$(gh api repos/$REPO_OWNER/$REPO_NAME/tags --jq '.[0].name' 2>/dev/null || echo "")
+          
+          if [[ -z "$LATEST_TAG" ]]; then
+            # No tags exist, use base tag
             NEW_TAG="$BASE_TAG"
+            echo "No existing tags found. Creating first tag: $NEW_TAG"
+          elif [[ "$LATEST_TAG" == *"gki-r"* ]]; then
+            # Extract the revision number and increment it
+            REVISION=$(echo "$LATEST_TAG" | grep -o 'r[0-9]*' | sed 's/r//')
+            NEW_REVISION=$((REVISION + 1))
+            NEW_TAG=$(echo "$LATEST_TAG" | sed "s/r[0-9]*/r$NEW_REVISION/")
+            echo "Found existing GKI tag: $LATEST_TAG"
+            echo "Creating new tag: $NEW_TAG"
+          else
+            # Existing tags don't match our pattern, use base tag
+            NEW_TAG="$BASE_TAG"
+            echo "Existing tags don't match GKI pattern. Creating: $NEW_TAG"
           fi
-          echo "New tag: $NEW_TAG"
+          
           echo "NEW_TAG=${NEW_TAG}" >> $GITHUB_ENV
-          git tag $NEW_TAG
-          git push origin $NEW_TAG
+          
+          # Check if tag already exists
+          if git ls-remote --tags origin | grep -q "refs/tags/$NEW_TAG"; then
+            echo "Tag $NEW_TAG already exists, skipping tag creation"
+          else
+            echo "Creating new tag: $NEW_TAG"
+            git tag $NEW_TAG
+            git push origin $NEW_TAG
+          fi
+
+      - name: Set release body
+        run: |
+          cat << 'EOF' > release_body.md
+          ## GKI KernelSU-Next Build - ${{ env.NEW_TAG }}
+          
+          **Branch type for KSU:** KernelSU-Next (${{ inputs.ksun_branch }})
+          **Current Kernel Tag:** ${{ env.NEW_TAG }}
+          
+          ### Features:
+          - KernelSU-Next (${{ inputs.ksun_branch }} branch)
+          - SUSFS v1.5.8
+          - Scope-Minimized Manual hooks v1.4
+          - Magic Mount Support
+          - Simple Maphide for LineageOS Detections
+          - Futile Maphide for jit-zygote-cache Detections
+          - Wireguard Support
+          - BBR Support
+          
+          ### Notes:
+          - KernelSU-Next, SUS SU Mode 2 will show as disabled or not compatible due to non-kprobe hooks and is not needed anymore!
+          - Official Kernel Flasher is broken with latest susfs, try:
+            - https://github.com/fatalcoder524/KernelFlasher/
+            - https://github.com/libxzr/HorizonKernelFlasher!
+          
+          ### Module:
+          - SUSFS Module: https://github.com/sidex15/ksu_module_susfs
+          
+          ### Managers:
+          - KernelSU: https://github.com/tiann/KernelSU / https://t.me/KernelSU_group
+          - KernelSU-Next: https://github.com/rifsxd/KernelSU-Next / https://t.me/ksunext_group
+          
+          ### Build Info:
+          - Android Version: ${{ inputs.android_version }}
+          - Kernel Version: ${{ needs.build-gki.outputs.kernel_full_version }}
+          - KernelSU Branch: ${{ inputs.ksun_branch }}
+          - SUSFS Branch: ${{ inputs.susfs_branch }}
+          - Build Date: $(date -u +"%Y-%m-%d %H:%M UTC")
+          EOF
 
       - name: Download Artifacts
         uses: actions/download-artifact@v4
         with:
-          path: ./downloaded-artifacts
+          name: kernel-gki-${{ inputs.android_version }}-${{ inputs.ksun_branch }}-${{ needs.build-gki.outputs.timestamp }}
+          path: ./artifacts
+
+      - name: List downloaded artifacts
+        run: |
+          echo "Downloaded artifacts:"
+          find ./artifacts -type f -name "*.zip" -o -name "*.img" | sort
+          ls -la ./artifacts/
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
@@ -476,23 +530,23 @@ jobs:
           name: ${{ env.NEW_TAG }}
           body_path: release_body.md
           files: |
-            ./downloaded-artifacts/**/*.zip
-            ./downloaded-artifacts/**/*.img
+            ./artifacts/*.zip
+            ./artifacts/*.img
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Display Files Uploaded
         run: |
           echo "GitHub release created with the following files:"
-          find ./downloaded-artifacts -type f \( -name "*.zip" -o -name "*.img" \) -exec basename {} \;
+          find ./artifacts -type f \( -name "*.zip" -o -name "*.img" \) -exec basename {} \;
 
       - name: Show build summary
         run: |
           echo "Build completed successfully!"
           echo "Build artifacts created:"
           echo "=== AnyKernel3 ZIP files ==="
-          find ./downloaded-artifacts -name "*.zip" -exec basename {} \;
+          find ./artifacts -name "*.zip" -exec basename {} \;
           echo "=== Boot IMG files ==="  
-          find ./downloaded-artifacts -name "*.img" -exec basename {} \;
+          find ./artifacts -name "*.img" -exec basename {} \;
           echo "Release type: ${{ inputs.release_type }}"
           echo "Release tag: ${{ env.NEW_TAG }}"
