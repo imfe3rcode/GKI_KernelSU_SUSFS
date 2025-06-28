@@ -185,7 +185,7 @@ jobs:
       - name: Clone Dependencies
         run: |
           echo "Cloning SuSFS, patches, and AnyKernel3..."
-          git clone https://gitlab.com/pershoot/susfs4ksu -b ${{ inputs.susfs_branch }}
+          git clone https://gitlab.com/simonpunk/susfs4ksu.git -b ${{ inputs.susfs_branch }}
           git clone https://github.com/infectedmushi/kernel_patches -b main
           git clone https://github.com/deepongi-labs/AnyKernel3-p8a -b gki-2.0
 
