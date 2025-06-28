@@ -41,6 +41,15 @@ on:
         required: false
         default: 'r1'
         type: string
+      release_type:
+        description: "Choose Release Type"
+        required: true
+        type: choice
+        options:
+          - Actions
+          - Pre-Release
+          - Release
+        default: Pre-Release
 
 jobs:
   build-gki:
@@ -77,6 +86,7 @@ jobs:
           
           # Set timestamp function
           echo "TIMESTAMP=$(date +%Y%m%d-%H%M)" >> $GITHUB_ENV
+          echo "NEW_TAG=A${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-KSUN-$(date +%Y%m%d-%H%M)" >> $GITHUB_ENV
 
       - name: Install Dependencies
         run: |
@@ -289,7 +299,7 @@ jobs:
 
       - name: Create AnyKernel3 ZIP files
         run: |
-          echo "Creating ZIP for kernel image..."
+          echo "Creating separate ZIP files for each kernel format..."
           
           # Set ZIP names with timestamp
           export ZIP_NAME_LZ4="AK3-A${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-KSUN-LZ4-${TIMESTAMP}.zip"
@@ -298,45 +308,47 @@ jobs:
           
           # Create LZ4 ZIP
           cd AnyKernel3-p8a
-          mv ../bootimgs/Image.lz4 ./Image.lz4
-          zip -r "$ZIP_NAME_LZ4" ./*
-          mv "$ZIP_NAME_LZ4" ../$ZIP_NAME_LZ4
+          cp ../bootimgs/Image.lz4 ./Image.lz4
+          zip -r9 "$ZIP_NAME_LZ4" ./*
+          mv "$ZIP_NAME_LZ4" ../
           rm -f ./Image.lz4
           cd ..
-          echo "AK3 LZ4 zip done!"
+          echo "AK3 LZ4 zip created: $ZIP_NAME_LZ4"
           
           # Create GZ ZIP
           cd AnyKernel3-p8a
-          mv ../bootimgs/Image.gz ./Image.gz
-          zip -r "$ZIP_NAME_GZ" ./*
-          mv "$ZIP_NAME_GZ" ../$ZIP_NAME_GZ
+          cp ../bootimgs/Image.gz ./Image.gz
+          zip -r9 "$ZIP_NAME_GZ" ./*
+          mv "$ZIP_NAME_GZ" ../
           rm -f ./Image.gz
           cd ..
-          echo "AK3 GZ zip done!"
+          echo "AK3 GZ zip created: $ZIP_NAME_GZ"
           
           # Create RAW ZIP
           cd AnyKernel3-p8a
-          mv ../bootimgs/Image ./Image
-          zip -r "$ZIP_NAME_RAW" ./*
-          mv "$ZIP_NAME_RAW" ../$ZIP_NAME_RAW
+          cp ../bootimgs/Image ./Image
+          zip -r9 "$ZIP_NAME_RAW" ./*
+          mv "$ZIP_NAME_RAW" ../
           rm -f ./Image
           cd ..
-          echo "AK3 RAW zip done!"
+          echo "AK3 RAW zip created: $ZIP_NAME_RAW"
 
-      - name: Create boot images (if available)
+      - name: Create boot images
         run: |
-          if [ -f "./bootimgs/boot.img" ]; then
-            export BUILD_IMG="A${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-KSUN-RAW-${TIMESTAMP}.img"
-            export BUILD_IMG_GZ="A${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-KSUN-GZ-${TIMESTAMP}.img"
-            export BUILD_IMG_LZ4="A${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-KSUN-LZ4-${TIMESTAMP}.img"
-            
-            cp ./bootimgs/boot.img ./$BUILD_IMG
-            cp ./bootimgs/boot-gz.img ./$BUILD_IMG_GZ 2>/dev/null || echo "boot-gz.img not available"
-            cp ./bootimgs/boot-lz4.img ./$BUILD_IMG_LZ4 2>/dev/null || echo "boot-lz4.img not available"
+          echo "Creating boot images..."
+          
+          # Set boot image names
+          export BOOT_IMG_RAW="A${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-KSUN-RAW-${TIMESTAMP}.img"
+          export BOOT_IMG_GZ="A${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-KSUN-GZ-${TIMESTAMP}.img"
+          export BOOT_IMG_LZ4="A${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-KSUN-LZ4-${TIMESTAMP}.img"
+          
+          if [ -f "./bootimgs/boot.img" ] && [ -f "./bootimgs/boot-gz.img" ] && [ -f "./bootimgs/boot-lz4.img" ]; then
+            echo "Using pre-built boot images..."
+            cp ./bootimgs/boot.img ./$BOOT_IMG_RAW
+            cp ./bootimgs/boot-gz.img ./$BOOT_IMG_GZ
+            cp ./bootimgs/boot-lz4.img ./$BOOT_IMG_LZ4
           else
-            echo "Boot images not available, creating them manually..."
-            
-            # Create boot images manually using mkbootimg
+            echo "Creating boot images manually..."
             cd bootimgs
             
             # Create gzip version if not exists
@@ -344,57 +356,134 @@ jobs:
               gzip -c Image > Image.gz
             fi
             
-            echo "Building boot.img"
-            $MKBOOTIMG --header_version 4 --kernel Image --output boot.img
-            $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
+            echo "Building boot.img (RAW)"
+            $MKBOOTIMG --header_version 4 --kernel Image --output boot-raw.img
+            $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-raw.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
             
-            echo "Building boot-gz.img"
+            echo "Building boot.img (GZ)"
             $MKBOOTIMG --header_version 4 --kernel Image.gz --output boot-gz.img
             $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-gz.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
             
-            echo "Building boot-lz4.img"
+            echo "Building boot.img (LZ4)"
             $MKBOOTIMG --header_version 4 --kernel Image.lz4 --output boot-lz4.img
             $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-lz4.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
             
             # Copy to parent directory with proper names
-            export BUILD_IMG="A${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-KSUN-RAW-${TIMESTAMP}.img"
-            export BUILD_IMG_GZ="A${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-KSUN-GZ-${TIMESTAMP}.img"
-            export BUILD_IMG_LZ4="A${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-KSUN-LZ4-${TIMESTAMP}.img"
-            
-            cp boot.img ../$BUILD_IMG
-            cp boot-gz.img ../$BUILD_IMG_GZ
-            cp boot-lz4.img ../$BUILD_IMG_LZ4
+            cp boot-raw.img ../$BOOT_IMG_RAW
+            cp boot-gz.img ../$BOOT_IMG_GZ
+            cp boot-lz4.img ../$BOOT_IMG_LZ4
             
             cd ..
           fi
+          
+          echo "Boot images created:"
+          echo "RAW: $BOOT_IMG_RAW"
+          echo "GZ: $BOOT_IMG_GZ" 
+          echo "LZ4: $BOOT_IMG_LZ4"
 
-      - name: Compress all img files
+      - name: Get commit hashes for release
+        if: ${{ inputs.release_type != 'Actions' }}
         run: |
-          echo "Compressing all img files..."
-          for image in *.img; do
-            if [ -f "$image" ]; then
-              gzip -vnf9 "$image"
-            fi
-          done
+          # Get SUSFS commit hashes
+          cd susfs4ksu
+          echo "SUSFS_COMMIT_HASH=$(git rev-parse HEAD)" >> $GITHUB_ENV
+          echo "SUSFS_COMMIT_URL=https://gitlab.com/simonpunk/susfs4ksu/-/commit/$(git rev-parse HEAD)" >> $GITHUB_ENV
+          cd ..
+          
+          # Get KernelSU-Next commit hash
+          cd common/KernelSU-Next
+          echo "NEXT_REF=$(git rev-parse HEAD | cut -c1-7)" >> $GITHUB_ENV
+          echo "NEXT_URL=https://github.com/rifsxd/KernelSU-Next/commit/$(git rev-parse HEAD)" >> $GITHUB_ENV
+          cd ../..
 
-      - name: Upload Build Artifacts
+      - name: Set release body
+        if: ${{ inputs.release_type != 'Actions' }}
+        run: |
+          cat << 'EOF' > release_body.md
+          ## Wild KSU Kernel Build - ${{ env.NEW_TAG }}
+          
+          **Branch type for KSU:** KernelSU-Next
+          **Current Kernel Tag:** ${{ env.NEW_TAG }}
+          
+          ### Features:
+          - Wild KSU Kernels & Others
+          - Multi Manager Support for Wild Kernels & Next Kernels (Not Recommended)
+          - SUSFS ඞ v1.5.8
+          - Scope-Minimized Manual hooks v1.4
+          - Magic Mount Support
+          - Simple Maphide for LineageOS Detections
+          - Futile Maphide for jit-zygote-cache Detections
+          - Wireguard Support
+          - BBR Support
+          
+          ### Notes:
+          - Wild KSU & KernelSU-Next, SUS SU Mode 2 will show as disabled or not compatible due to non-kprobe hooks and is not needed anymore!
+          - Official Kernel Flasher is broken with latest susfs, try:
+            - https://github.com/fatalcoder524/KernelFlasher/
+            - https://github.com/libxzr/HorizonKernelFlasher!
+          
+          ### Module:
+          - SUSFS Module: https://github.com/sidex15/ksu_module_susfs
+          
+          ### Managers:
+          - Wild KSU: https://github.com/WildKernels/Wild_KSU / https://t.me/WildKernels
+          - KernelSU: https://github.com/tiann/KernelSU / https://t.me/KernelSU_group
+          - 5ec1cff's KernelSU: https://github.com/5ec1cff/KernelSU / https://t.me/mksu_ci
+          - KernelSU-Next: https://github.com/rifsxd/KernelSU-Next / https://t.me/ksunext_group
+          - rsuntk: https://github.com/rsuntk/KernelSU / https://t.me/rsukrnlsu
+          - backslashxx: https://github.com/backslashxx/KernelSU
+          
+          ### Commit Hashes (at the time of release):
+          - KernelSU Next: [${{ env.NEXT_REF }}](${{ env.NEXT_URL }})
+          - SUSFS4KSU gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}: [${{ env.SUSFS_COMMIT_HASH }}](${{ env.SUSFS_COMMIT_URL }})
+          
+          ### Build Info:
+          - Android Version: ${{ inputs.android_version }}
+          - Kernel Version: ${{ inputs.kernel_version }}.${{ inputs.sub_level }}
+          - OS Patch Level: ${{ inputs.os_patch_level }}
+          - Build Date: $(date -u +"%Y-%m-%d %H:%M UTC")
+          EOF
+
+      - name: Upload Build Artifacts (Actions only)
+        if: ${{ inputs.release_type == 'Actions' }}
         uses: actions/upload-artifact@v4
         with:
           name: KSUN-${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ env.TIMESTAMP }}
           path: |
-            *.zip
-            *.img.gz
-            bootimgs/Image*
+            AK3-*.zip
+            A${{ inputs.android_version }}-*.img
           retention-days: 7
+
+      - name: Create Release
+        if: ${{ inputs.release_type == 'Release' || inputs.release_type == 'Pre-Release' }}
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ env.NEW_TAG }}
+          name: ${{ env.NEW_TAG }}
+          body_path: release_body.md
+          prerelease: ${{ inputs.release_type == 'Pre-Release' }}
+          files: |
+            AK3-*.zip
+            A${{ inputs.android_version }}-*.img
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Show build summary
         run: |
           echo "Build completed successfully!"
-          echo "Build artifacts:"
-          ls -la *.zip *.img.gz 2>/dev/null || echo "No final artifacts found"
-          echo "Boot images:"
+          echo "Build artifacts created:"
+          echo "=== AnyKernel3 ZIP files ==="
+          ls -la AK3-*.zip 2>/dev/null || echo "No AK3 ZIP files found"
+          echo "=== Boot IMG files ==="
+          ls -la A${{ inputs.android_version }}-*.img 2>/dev/null || echo "No boot IMG files found"
+          echo "=== Raw kernel images ==="
           ls -la bootimgs/ 2>/dev/null || echo "No bootimgs directory"
+          echo "=== System info ==="
           echo "Disk usage:"
           df -h
           echo "ccache stats:"
           ccache --show-stats
+          echo "Release type: ${{ inputs.release_type }}"
+          if [ "${{ inputs.release_type }}" != "Actions" ]; then
+            echo "Release tag: ${{ env.NEW_TAG }}"
+          fi
