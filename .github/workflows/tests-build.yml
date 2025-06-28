@@ -68,7 +68,7 @@ env:
 
 jobs:
   build-gki-kernels:
-    name: Build GKI (${{ matrix.android_version }}, ${{ matrix.kernel_version }}, ${{ github.event.inputs.ksun_branch || env.DEFAULT_KSUN_BRANCH }}, LTO: ${{ github.event.inputs.lto_mode || env.DEFAULT_LTO_MODE }})
+    name: Build GKI Kernels
     strategy:
       fail-fast: false
       matrix:
@@ -94,6 +94,15 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
+      - name: Set build info
+        id: build-info
+        run: |
+          KSUN_BRANCH="${{ github.event.inputs.ksun_branch || env.DEFAULT_KSUN_BRANCH }}"
+          LTO_MODE="${{ github.event.inputs.lto_mode || env.DEFAULT_LTO_MODE }}"
+          echo "Building GKI (${{ matrix.android_version }}, ${{ matrix.kernel_version }}, ${KSUN_BRANCH}, LTO: ${LTO_MODE})"
+          echo "ksun_branch=${KSUN_BRANCH}" >> $GITHUB_OUTPUT
+          echo "lto_mode=${LTO_MODE}" >> $GITHUB_OUTPUT
+
       - name: Maximize build space
         uses: easimon/maximize-build-space@master
         with:
@@ -177,7 +186,7 @@ jobs:
         run: |
           cd common
           echo "Adding KSU-Next..."
-          KSUN_BRANCH="${{ github.event.inputs.ksun_branch || env.DEFAULT_KSUN_BRANCH }}"
+          KSUN_BRANCH="${{ steps.build-info.outputs.ksun_branch }}"
           curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/${KSUN_BRANCH}/kernel/setup.sh" | bash -s ${KSUN_BRANCH}
 
       - name: Apply SuSFS patches
@@ -199,7 +208,7 @@ jobs:
       - name: Apply KernelSU Next patches
         run: |
           cd common/KernelSU-Next
-          KSUN_BRANCH="${{ github.event.inputs.ksun_branch || env.DEFAULT_KSUN_BRANCH }}"
+          KSUN_BRANCH="${{ steps.build-info.outputs.ksun_branch }}"
           if [ -f "../../kernel_patches/${KSUN_BRANCH}/0001-kernel-implement-susfs-v1.5.8-KernelSU-Next-v1.0.8.patch" ]; then
             cp -v ../../kernel_patches/${KSUN_BRANCH}/0001-kernel-implement-susfs-v1.5.8-KernelSU-Next-v1.0.8.patch ./
             patch -p1 --fuzz=3 < 0001-kernel-implement-susfs-v1.5.8-KernelSU-Next-v1.0.8.patch
@@ -288,7 +297,7 @@ jobs:
           export USE_CCACHE=1
           export CCACHE_DIR=$HOME/.ccache
           
-          LTO_MODE="${{ github.event.inputs.lto_mode || env.DEFAULT_LTO_MODE }}"
+          LTO_MODE="${{ steps.build-info.outputs.lto_mode }}"
           echo "Building kernel with LTO mode: $LTO_MODE"
           
           case "$LTO_MODE" in
