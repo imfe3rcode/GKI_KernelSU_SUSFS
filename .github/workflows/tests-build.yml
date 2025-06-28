@@ -3,6 +3,7 @@ name: Build and Release GKI Kernels
 permissions:
   contents: write
   actions: write
+  workflows: write
 
 on:
   workflow_dispatch:
