@@ -62,6 +62,7 @@ jobs:
       new_tag: ${{ steps.set-env.outputs.new_tag }}
       kernel_full_version: ${{ steps.kernel-version.outputs.kernel_full_version }}
       kernel_sublevel: ${{ steps.kernel-version.outputs.kernel_sublevel }}
+      artifact_name: ${{ steps.set-env.outputs.artifact_name }}
     
     steps:
       - name: Checkout Code
@@ -111,10 +112,13 @@ jobs:
         run: |
           TIMESTAMP=$(date +%Y%m%d-%H%M)
           NEW_TAG=GKI-${{ inputs.android_version }}-KSUN-$(date +%Y%m%d-%H%M)
+          ARTIFACT_NAME=kernel-gki-${{ inputs.android_version }}-${{ inputs.ksun_branch }}-$TIMESTAMP
           echo "TIMESTAMP=$TIMESTAMP" >> $GITHUB_ENV
           echo "NEW_TAG=$NEW_TAG" >> $GITHUB_ENV
+          echo "ARTIFACT_NAME=$ARTIFACT_NAME" >> $GITHUB_ENV
           echo "timestamp=$TIMESTAMP" >> $GITHUB_OUTPUT
           echo "new_tag=$NEW_TAG" >> $GITHUB_OUTPUT
+          echo "artifact_name=$ARTIFACT_NAME" >> $GITHUB_OUTPUT
 
       - name: Determine Build Parameters
         id: build-params
@@ -403,21 +407,11 @@ jobs:
           echo "NEXT_URL=https://github.com/rifsxd/KernelSU-Next/commit/$(git rev-parse HEAD)" >> $GITHUB_ENV
           cd ../..
 
-      - name: Upload Build Artifacts (Actions only)
-        if: ${{ inputs.make_release && inputs.release_type == 'Actions' }}
+      # Always upload artifacts to be available for the release job
+      - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: kernel-gki-${{ inputs.android_version }}-${{ inputs.ksun_branch }}-${{ env.TIMESTAMP }}
-          path: |
-            *.zip
-            *.img
-          retention-days: 7
-
-      - name: Upload Artifacts (No Release)
-        if: ${{ !inputs.make_release }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: kernel-gki-${{ inputs.android_version }}-${{ inputs.ksun_branch }}-${{ env.TIMESTAMP }}
+          name: ${{ env.ARTIFACT_NAME }}
           path: |
             *.zip
             *.img
@@ -435,6 +429,22 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      # Wait a bit to ensure artifact is available
+      - name: Wait for artifact availability
+        run: sleep 30
+
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.build-gki.outputs.artifact_name }}
+          path: ./artifacts
+
+      - name: List downloaded artifacts
+        run: |
+          echo "Downloaded artifacts:"
+          find ./artifacts -type f -name "*.zip" -o -name "*.img" | sort
+          ls -la ./artifacts/
 
       - name: Generate and Create New Tag
         run: |
@@ -509,18 +519,6 @@ jobs:
           - SUSFS Branch: ${{ inputs.susfs_branch }}
           - Build Date: $(date -u +"%Y-%m-%d %H:%M UTC")
           EOF
-
-      - name: Download Artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: kernel-gki-${{ inputs.android_version }}-${{ inputs.ksun_branch }}-${{ needs.build-gki.outputs.timestamp }}
-          path: ./artifacts
-
-      - name: List downloaded artifacts
-        run: |
-          echo "Downloaded artifacts:"
-          find ./artifacts -type f -name "*.zip" -o -name "*.img" | sort
-          ls -la ./artifacts/
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
