@@ -1,0 +1,255 @@
+name: Build Script-6.1
+permissions:
+  contents: write
+  actions: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      kernelsu_variant:
+        description: 'KernelSU variant (NEXT, KSU, WILD, MKSU)'
+        required: true
+        type: string
+        default: 'NEXT'
+      kernelsu_branch:
+        description: 'KernelSU branch (Stable, Dev, Other)'
+        required: true
+        type: string
+        default: 'Dev'
+      kernelsu_branch_other:
+        description: 'Custom KernelSU branch if Other is selected'
+        required: false
+        type: string
+
+jobs:
+  build-gki:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      CCACHE_COMPILERCHECK: "%compiler% -dumpmachine; %compiler% -dumpversion"
+      CCACHE_NOHASHDIR: "true"
+      CCACHE_HARDLINK: "true"
+      CONFIG: "android14-6.1"
+      ANDROID_VERSION: "android14"
+      KERNEL_VERSION: "6.1"
+
+    steps:
+      - name: Maximize Build Space
+        uses: AdityaGarg8/remove-unwanted-software@v5
+        with:
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+          remove-codeql: 'true'
+          remove-docker-images: 'true'
+          remove-large-packages: 'true'
+          remove-swapfile: 'true'
+          verbose: 'true'
+
+      - name: Install ccache
+        run: sudo apt update && sudo apt install -y ccache
+
+      - name: Set up ccache
+        run: |
+          mkdir -p ~/.cache/bazel
+          ccache --version
+          ccache --max-size=2G
+          ccache --set-config=compression=true
+          echo "CCACHE_DIR=$HOME/.ccache" >> $GITHUB_ENV
+
+      - name: Download toolchain
+        run: |
+          AOSP_MIRROR=https://android.googlesource.com
+          BRANCH=main-kernel-build-2024
+          git clone $AOSP_MIRROR/kernel/prebuilts/build-tools -b $BRANCH --depth 1 kernel-build-tools
+          git clone $AOSP_MIRROR/platform/system/tools/mkbootimg -b $BRANCH --depth 1 mkbootimg
+
+      - name: Set environment variables
+        run: |
+          echo "AVBTOOL=$GITHUB_WORKSPACE/kernel-build-tools/linux-x86/bin/avbtool" >> $GITHUB_ENV
+          echo "MKBOOTIMG=$GITHUB_WORKSPACE/mkbootimg/mkbootimg.py" >> $GITHUB_ENV
+          echo "UNPACK_BOOTIMG=$GITHUB_WORKSPACE/mkbootimg/unpack_bootimg.py" >> $GITHUB_ENV
+
+      - name: Set boot sign key
+        env:
+          BOOT_SIGN_KEY: ${{ secrets.BOOT_SIGN_KEY }}
+        run: |
+          if [ ! -z "$BOOT_SIGN_KEY" ]; then
+            echo "$BOOT_SIGN_KEY" > ./kernel-build-tools/linux-x86/share/avb/testkey_rsa2048.pem
+            echo "BOOT_SIGN_KEY_PATH=$GITHUB_WORKSPACE/kernel-build-tools/linux-x86/share/avb/testkey_rsa2048.pem" >> $GITHUB_ENV
+          else
+            echo "BOOT_SIGN_KEY is not set. Using AOSP sign key..."
+            echo "BOOT_SIGN_KEY_PATH=$GITHUB_WORKSPACE/kernel-build-tools/linux-x86/share/avb/testkey_rsa2048.pem" >> $GITHUB_ENV
+          fi
+
+      - name: Install Repo
+        run: |
+          mkdir -p ./git-repo
+          curl https://storage.googleapis.com/git-repo-downloads/repo > ./git-repo/repo
+          chmod a+rx ./git-repo/repo
+          echo "REPO=$GITHUB_WORKSPACE/./git-repo/repo" >> $GITHUB_ENV
+
+      - name: Clone AnyKernel3 and Other Dependencies
+        run: |
+          git clone https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android14-6.1
+          git clone https://github.com/infectedmushi/kernel_patches -b main
+          git clone https://github.com/deepongi-labs/AnyKernel3-p8a -b gki-2.0
+
+      - name: Check Disk Space Before Sync
+        run: |
+          echo "Disk space before kernel source sync:"
+          df -h
+
+      - name: Initialize and Sync Kernel Source
+        run: |
+          mkdir -p "$CONFIG"
+          cd "$CONFIG"
+          $REPO init --depth=1 --u https://android.googlesource.com/kernel/manifest -b common-android14-6.1 --repo-rev=v2.16
+          $REPO --trace sync -c -j$(nproc --all) --no-tags --fail-fast
+
+      - name: Determine the branch for KernelSU
+        run: |
+          case "${{ inputs.kernelsu_branch }}" in
+            "Stable")
+              echo "BRANCH=-" >> $GITHUB_ENV
+              ;;
+            "Dev")
+              if [[ "${{ inputs.kernelsu_variant }}" == "NEXT" ]]; then
+                echo "BRANCH=-s next" >> $GITHUB_ENV
+              else
+                echo "BRANCH=-s main" >> $GITHUB_ENV
+              fi
+              ;;
+            "Other")
+              if [[ -n "${{ inputs.kernelsu_branch_other }}" ]]; then
+                echo "BRANCH=-s ${{ inputs.kernelsu_branch_other }}" >> $GITHUB_ENV
+              else
+                echo "Error: Custom branch not provided for 'Other'" >&2
+                exit 1
+              fi
+              ;;
+          esac
+
+      - name: Add KernelSU
+        run: |
+          cd "$CONFIG"
+          echo "Adding KernelSU Next..."
+          curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash ${{ env.BRANCH }}
+
+      - name: Apply SUSFS Patches
+        run: |
+          cd "$CONFIG"
+          cp ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-android14-6.1.patch ./common/
+          cp ../susfs4ksu/kernel_patches/fs/* ./common/fs/
+          cp ../susfs4ksu/kernel_patches/include/linux/* ./common/include/linux/
+          cd common
+          patch -p1 --forward --fuzz=3 < 50_add_susfs_in_gki-android14-6.1.patch
+          cd ./KernelSU-Next
+          cp ../../kernel_patches/next/0001-kernel-implement-susfs-v1.5.8-KernelSU-Next-v1.0.8.patch ./
+          patch -p1 --fuzz=3 < 0001-kernel-implement-susfs-v1.5.8-KernelSU-Next-v1.0.8.patch
+          curl -Ls "https://github.com/cvnertnc/KernelSU-Next/commit/6a7707dc38fc9217dbdc79fe471220383dec2369.patch" | patch -p1 --fuzz=3
+          cd ..
+
+      - name: Apply Hide Stuff Patch
+        run: |
+          cd "$CONFIG/common"
+          cp ../../kernel_patches/69_hide_stuff.patch ./
+          patch -p1 -F 3 < 69_hide_stuff.patch
+
+      - name: Remove Protected Exports
+        run: |
+          cd "$CONFIG/common"
+          sed -i '/^[[:space:]]*"protected_exports_list"[[:space:]]*:[[:space:]]*"android\/abi_gki_protected_exports_aarch64",$/d' ./BUILD.bazel
+          rm -rf ./android/abi_gki_protected_exports_*
+
+      - name: Add Configuration Settings
+        run: |
+          cd "$CONFIG"
+          echo "Adding configuration settings to gki_defconfig..."
+          echo "CONFIG_KSU=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_KPROBES_HOOK=n" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_SUS_KSTAT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_SUS_OVERLAYFS=n" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_TRY_UMOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_SPOOF_UNAME=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_ENABLE_LOG=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_SUS_SU=n" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_TMPFS_XATTR=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_TMPFS_POSIX_ACL=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_IP_NF_TARGET_TTL=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_IP6_NF_TARGET_HL=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_IP6_NF_MATCH_HL=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_TCP_CONG_ADVANCED=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_TCP_CONG_BBR=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_NET_SCH_FQ=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_TCP_CONG_BIC=n" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_TCP_CONG_WESTWOOD=n" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_TCP_CONG_HTCP=n" >> ./common/arch/arm64/configs/gki_defconfig
+
+      - name: Modify Build Configuration
+        run: |
+          cd "$CONFIG"
+          sed -i 's/check_defconfig//' ./common/build.config.gki
+          sed -i '$s|echo "\$res"|echo "\$res-TheFloresto+"|' ./common/scripts/setlocalversion
+          sed -i "/stable_scmversion_cmd/s/-maybe-dirty//g" ./build/kernel/kleaf/impl/stamp.bzl
+          sed -i "s|build-timestamp = \$(or \$(KBUILD_BUILD_TIMESTAMP), \$(build-timestamp-auto))|build-timestamp = \"$(date -u +\"%a %b %d %T UTC %Y\")\"|" ./common/init/Makefile
+
+      - name: Build Kernel
+        run: |
+          cd "$CONFIG"
+          tools/bazel build --config=fast --lto=thin //common:kernel_aarch64_dist
+          ccache --show-stats
+
+      - name: Create Bootimgs Folder and Copy Images
+        run: |
+          mkdir bootimgs
+          cp ./$CONFIG/bazel-bin/common/kernel_aarch64/Image ./bootimgs/
+          cp ./$CONFIG/bazel-bin/common/kernel_aarch64/Image.lz4 ./bootimgs/
+          cp ./$CONFIG/bazel-bin/common/kernel_aarch64/Image.gz ./bootimgs/
+          cp ./$CONFIG/bazel-bin/common/kernel_aarch64_gki_artifacts/boot.img ./bootimgs/
+          cp ./$CONFIG/bazel and so on...
+
+      - name: Create ZIP Files
+        run: |
+          cd ./AnyKernel3-p8a
+          TIMESTAMP=$(date +"%Y%m%d-%H%M")
+          ZIP_NAME_LZ4="AK3-A14-6.1-KSUN-LZ4-$TIMESTAMP.zip"
+          ZIP_NAME_GZ="AK3-A14-6.1-KSUN-GZ-$TIMESTAMP.zip"
+          ZIP_NAME_RAW="AK3-A14-6.1-KSUN-RAW-$TIMESTAMP.zip"
+          mv ../bootimgs/Image.lz4 ./Image.lz4
+          zip -r "../$ZIP_NAME_LZ4" ./*
+          mv ../$ZIP_NAME_LZ4 /mnt/Android/kernel_builds/6.1/
+          rm ./Image.lz4
+          mv ../bootimgs/Image.gz ./Image.gz
+          zip -r "../$ZIP_NAME_GZ" ./*
+          mv ../$ZIP_NAME_GZ /mnt/Android/kernel_builds/6.1/
+          rm ./Image.gz
+          mv ../bootimgs/Image ./Image
+          zip -r "../$ZIP_NAME_RAW" ./*
+          mv ../$ZIP_NAME_RAW /mnt/Android/kernel_builds/6.1/
+          rm ./Image
+
+          mkdir -p /mnt/Android/kernel_builds/6.1
+          mv ../bootimgs/boot.img /bootimgs/A14-6.1-KSUN-RAW-$TIMESTAMP.img
+          mv ../bootimgs/boot-gz.img /bootimgs/A14-6.1-KSUN-GZ-$TIMESTAMP.img
+          mv ../bootimgs/boot-lz4.img /bootimgs/A14-6.1-KSUN-LZ4-$TIMESTAMP.img
+          cp /bootimgs/A Giovanni...
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: KSUN-kernel"...kernel-android14-6.1
+          path: |
+            *.zip
+            *.img
+            *Image*
