@@ -12,6 +12,15 @@ on:
         required: true
         type: boolean
         default: false
+      release_type:
+        description: "Choose Release Type"
+        required: true
+        type: choice
+        options:
+          - Actions
+          - Pre-Release
+          - Release
+        default: Pre-Release
       ksun_branch:
         description: "Choose KernelSU Next Branch"
         required: true
@@ -36,29 +45,49 @@ on:
         description: "Choose SusFS Branch"
         type: string
         default: "gki-android14-6.1"
-      release_type: # Добавлено из 2.yml
-        description: "Choose Release Type"
+      sub_level:
+        description: 'Sub Level'
         required: true
-        type: choice
-        options:
-          - Actions
-          - Pre-Release
-          - Release
-        default: Pre-Release
+        default: '138'
+        type: string
+      os_patch_level:
+        description: 'OS Patch Level'
+        required: true
+        default: '2024-11'
+        type: string
 
 jobs:
   build-gki:
     name: Build GKI (${{ inputs.android_version }}, KSU-${{ inputs.ksun_branch }})
     runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      CCACHE_COMPILERCHECK: "%compiler% -dumpmachine; %compiler% -dumpversion"
+      CCACHE_NOHASHDIR: "true"
+      CCACHE_HARDLINK: "true"
+      USE_CCACHE: "true"
     
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      - name: Maximize Build Space
+        uses: AdityaGarg8/remove-unwanted-software@v5
+        with:
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+          remove-codeql: 'true'
+          remove-docker-images: 'true'
+          remove-large-packages: 'true'
+          remove-swapfile: 'true'
+          remove-cached-tools: 'false'
+          verbose: 'true'
+
       - name: Setup Build Environment
         run: |
           sudo apt-get update
-          sudo apt-get install -y git curl wget zip unzip build-essential bc bison flex libssl-dev libncurses5-dev libelf-dev
+          sudo apt-get install -y git curl wget zip unzip build-essential bc bison flex libssl-dev libncurses5-dev libelf-dev ccache python3 python3-pip
           
       - name: Setup Repo Tool
         run: |
@@ -73,33 +102,46 @@ jobs:
           git config --global user.email "action@github.com"
           git config --global user.name "GitHub Action"
 
+      - name: Set up ccache
+        run: |
+          mkdir -p ~/.cache/bazel
+          ccache --version
+          ccache --max-size=4G
+          ccache --set-config=compression=true
+          echo "CCACHE_DIR=$HOME/.ccache" >> $GITHUB_ENV
+
+      - name: Set Environment Variables
+        run: |
+          echo "TIMESTAMP=$(date +%Y%m%d-%H%M)" >> $GITHUB_ENV
+          echo "NEW_TAG=GKI-${{ inputs.android_version }}-KSUN-$(date +%Y%m%d-%H%M)" >> $GITHUB_ENV
+
       - name: Determine Build Parameters
         id: build-params
         run: |
           case "${{ inputs.android_version }}" in
             "android12-5.10")
               KERNEL_VERSION="5.10"
-              MANIFEST_BRANCH="common-android12-5.10"
+              MANIFEST_BRANCH="common-android12-5.10-${{ inputs.os_patch_level }}"
               ;;
             "android13-5.10")
               KERNEL_VERSION="5.10"
-              MANIFEST_BRANCH="common-android13-5.10"
+              MANIFEST_BRANCH="common-android13-5.10-${{ inputs.os_patch_level }}"
               ;;
             "android13-5.15")
               KERNEL_VERSION="5.15"
-              MANIFEST_BRANCH="common-android13-5.15"
+              MANIFEST_BRANCH="common-android13-5.15-${{ inputs.os_patch_level }}"
               ;;
             "android14-5.15")
               KERNEL_VERSION="5.15"
-              MANIFEST_BRANCH="common-android14-5.15"
+              MANIFEST_BRANCH="common-android14-5.15-${{ inputs.os_patch_level }}"
               ;;
             "android14-6.1")
               KERNEL_VERSION="6.1"
-              MANIFEST_BRANCH="common-android14-6.1-2025-06"
+              MANIFEST_BRANCH="common-android14-6.1-${{ inputs.os_patch_level }}"
               ;;
             "android15-6.6")
               KERNEL_VERSION="6.6"
-              MANIFEST_BRANCH="common-android15-6.6"
+              MANIFEST_BRANCH="common-android15-6.6-${{ inputs.os_patch_level }}"
               ;;
             *)
               echo "Unsupported Android version: ${{ inputs.android_version }}"
@@ -109,14 +151,31 @@ jobs:
           
           echo "kernel_version=$KERNEL_VERSION" >> $GITHUB_OUTPUT
           echo "manifest_branch=$MANIFEST_BRANCH" >> $GITHUB_OUTPUT
-          
-          # Добавляем переменные для формирования NEW_TAG, аналогично 2.yml
-          ANDROID_VER_SHORT=$(echo "${{ inputs.android_version }}" | cut -d'-' -f1)
-          KERNEL_VER_SHORT=$(echo "${{ steps.build-params.outputs.kernel_version }}" | cut -d'.' -f1) # Берем только мажорную версию
-          KERNEL_SUB_LEVEL_PLACEHOLDER="0" # Заглушка, так как в 1.yml нет sub_level
-          echo "NEW_TAG=A${ANDROID_VER_SHORT}-${KERNEL_VER_SHORT}.${KERNEL_SUB_LEVEL_PLACEHOLDER}-KSUN-$(date +%Y%m%d-%H%M)" >> $GITHUB_ENV
-          echo "TIMESTAMP=$(date +%Y%m%d-%H%M)" >> $GITHUB_ENV
 
+      - name: Download toolchain
+        run: |
+          AOSP_MIRROR=https://android.googlesource.com
+          BRANCH=main-kernel-build-2024
+          git clone $AOSP_MIRROR/kernel/prebuilts/build-tools -b $BRANCH --depth 1 kernel-build-tools
+          git clone $AOSP_MIRROR/platform/system/tools/mkbootimg -b $BRANCH --depth 1 mkbootimg
+
+      - name: Set environment variables for tools
+        run: |
+          echo "AVBTOOL=$GITHUB_WORKSPACE/kernel-build-tools/linux-x86/bin/avbtool" >> $GITHUB_ENV
+          echo "MKBOOTIMG=$GITHUB_WORKSPACE/mkbootimg/mkbootimg.py" >> $GITHUB_ENV
+          echo "UNPACK_BOOTIMG=$GITHUB_WORKSPACE/mkbootimg/unpack_bootimg.py" >> $GITHUB_ENV
+
+      - name: Set boot sign key
+        env:
+          BOOT_SIGN_KEY: ${{ secrets.BOOT_SIGN_KEY }}
+        run: |
+          if [ ! -z "$BOOT_SIGN_KEY" ]; then
+            echo "$BOOT_SIGN_KEY" > ./kernel-build-tools/linux-x86/share/avb/testkey_rsa2048.pem
+            echo "BOOT_SIGN_KEY_PATH=$GITHUB_WORKSPACE/kernel-build-tools/linux-x86/share/avb/testkey_rsa2048.pem" >> $GITHUB_ENV
+          else
+            echo "BOOT_SIGN_KEY is not set. Using AOSP sign key..."
+            echo "BOOT_SIGN_KEY_PATH=$GITHUB_WORKSPACE/kernel-build-tools/linux-x86/share/avb/testkey_rsa2048.pem" >> $GITHUB_ENV
+          fi
 
       - name: Clone Dependencies
         run: |
@@ -129,6 +188,15 @@ jobs:
         run: |
           echo "Initializing repo..."
           repo init --depth=1 --u https://android.googlesource.com/kernel/manifest -b ${{ steps.build-params.outputs.manifest_branch }}
+          
+          # Check for deprecated branch
+          REMOTE_BRANCH=$(git ls-remote https://android.googlesource.com/kernel/common ${{ steps.build-params.outputs.manifest_branch }} || echo "")
+          DEFAULT_MANIFEST_PATH=.repo/manifests/default.xml
+          if echo "$REMOTE_BRANCH" | grep -q "deprecated"; then
+            echo "Found deprecated branch: ${{ steps.build-params.outputs.manifest_branch }}"
+            sed -i "s/\"${{ steps.build-params.outputs.manifest_branch }}\"/\"deprecated\/${{ steps.build-params.outputs.manifest_branch }}\"/g" $DEFAULT_MANIFEST_PATH
+          fi
+          
           echo "Syncing sources..."
           repo sync -c -j$(nproc) --no-tags --fail-fast
 
@@ -215,41 +283,68 @@ jobs:
           
           cd ..
           tools/bazel build --disk_cache=~/.cache/bazel-disk --experimental_multi_threaded_digest --config=fast --lto=thin //common:kernel_aarch64_dist
+          
+          echo "Kernel build completed!"
+          ccache --show-stats
 
       - name: Prepare Artifacts
         run: |
           mkdir -p bootimgs
+          
+          # Copy kernel images
           cp -v bazel-bin/common/kernel_aarch64/Image.lz4 bootimgs/
-          cp -v bazel-bin/common/kernel_aarch64/Image.gz bootimgs/
+          cp -v bazel-bin/common/kernel_aarch64/Image.gz bootimgs/ || gzip -c bazel-bin/common/kernel_aarch64/Image > bootimgs/Image.gz
           cp -v bazel-bin/common/kernel_aarch64/Image bootimgs/
-          cp -v bazel-bin/common/kernel_aarch64_gki_artifacts/boot.img bootimgs/
-          cp -v bazel-bin/common/kernel_aarch64_gki_artifacts/boot-gz.img bootimgs/
-          cp -v bazel-bin/common/kernel_aarch64_gki_artifacts/boot-lz4.img bootimgs/
+          
+          # Copy boot images if they exist
+          cp -v bazel-bin/common/kernel_aarch64_gki_artifacts/boot.img bootimgs/ || echo "boot.img not found"
+          cp -v bazel-bin/common/kernel_aarch64_gki_artifacts/boot-gz.img bootimgs/ || echo "boot-gz.img not found"
+          cp -v bazel-bin/common/kernel_aarch64_gki_artifacts/boot-lz4.img bootimgs/ || echo "boot-lz4.img not found"
+
+      - name: Create boot images if needed
+        run: |
+          if [ ! -f "bootimgs/boot.img" ] || [ ! -f "bootimgs/boot-gz.img" ] || [ ! -f "bootimgs/boot-lz4.img" ]; then
+            echo "Creating boot images manually..."
+            cd bootimgs
+            
+            echo "Building boot.img (RAW)"
+            $MKBOOTIMG --header_version 4 --kernel Image --output boot.img
+            $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
+            
+            echo "Building boot.img (GZ)"
+            $MKBOOTIMG --header_version 4 --kernel Image.gz --output boot-gz.img
+            $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-gz.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
+            
+            echo "Building boot.img (LZ4)"
+            $MKBOOTIMG --header_version 4 --kernel Image.lz4 --output boot-lz4.img
+            $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-lz4.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
+            
+            cd ..
+          fi
 
       - name: Create AnyKernel3 ZIPs
         run: |
-          # Используем TIMESTAMP из определенного ранее в job
           ANDROID_VER=$(echo "${{ inputs.android_version }}" | cut -d'-' -f1)
           KERNEL_VER="${{ steps.build-params.outputs.kernel_version }}"
           
           # Create LZ4 ZIP
           cd AnyKernel3-p8a
           cp ../bootimgs/Image.lz4 ./
-          ZIP_NAME_LZ4="AK3-GKI-${ANDROID_VER}-${KERNEL_VER}-KSUN-LZ4-${{ env.TIMESTAMP }}.zip"
+          ZIP_NAME_LZ4="AK3-GKI-${ANDROID_VER}-${KERNEL_VER}.${{ inputs.sub_level }}-KSUN-LZ4-${TIMESTAMP}.zip"
           zip -r "$ZIP_NAME_LZ4" ./*
           mv "$ZIP_NAME_LZ4" ../
           rm Image.lz4
           
           # Create GZ ZIP
           cp ../bootimgs/Image.gz ./
-          ZIP_NAME_GZ="AK3-GKI-${ANDROID_VER}-${KERNEL_VER}-KSUN-GZ-${{ env.TIMESTAMP }}.zip"
+          ZIP_NAME_GZ="AK3-GKI-${ANDROID_VER}-${KERNEL_VER}.${{ inputs.sub_level }}-KSUN-GZ-${TIMESTAMP}.zip"
           zip -r "$ZIP_NAME_GZ" ./*
           mv "$ZIP_NAME_GZ" ../
           rm Image.gz
           
           # Create RAW ZIP
           cp ../bootimgs/Image ./
-          ZIP_NAME_RAW="AK3-GKI-${ANDROID_VER}-${KERNEL_VER}-KSUN-RAW-${{ env.TIMESTAMP }}.zip"
+          ZIP_NAME_RAW="AK3-GKI-${ANDROID_VER}-${KERNEL_VER}.${{ inputs.sub_level }}-KSUN-RAW-${TIMESTAMP}.zip"
           zip -r "$ZIP_NAME_RAW" ./*
           mv "$ZIP_NAME_RAW" ../
           rm Image
@@ -257,43 +352,13 @@ jobs:
           cd ..
           
           # Rename boot images
-          mv bootimgs/boot.img "GKI-${ANDROID_VER}-${KERNEL_VER}-KSUN-RAW-${{ env.TIMESTAMP }}.img"
-          mv bootimgs/boot-gz.img "GKI-${ANDROID_VER}-${KERNEL_VER}-KSUN-GZ-${{ env.TIMESTAMP }}.img"
-          mv bootimgs/boot-lz4.img "GKI-${ANDROID_VER}-${KERNEL_VER}-KSUN-LZ4-${{ env.TIMESTAMP }}.img"
-
-      - name: Upload Artifacts (Actions only) # Изменено для соответствия логике 2.yml
-        if: ${{ inputs.release_type == 'Actions' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: kernel-gki-${{ inputs.android_version }}-${{ inputs.ksun_branch }}-${{ env.TIMESTAMP }}
-          path: |
-            *.zip
-            *.img
-          retention-days: 7
-
-  trigger-release:
-    needs: build-gki
-    runs-on: ubuntu-latest
-    if: ${{ inputs.make_release && inputs.release_type != 'Actions' }} # Запускать только если make_release true и не 'Actions'
-    env:
-      REPO_OWNER: ${{ github.repository_owner }}
-      REPO_NAME: ${{ github.event.repository.name }}
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+          mv bootimgs/boot.img "GKI-${ANDROID_VER}-${KERNEL_VER}.${{ inputs.sub_level }}-KSUN-RAW-${TIMESTAMP}.img"
+          mv bootimgs/boot-gz.img "GKI-${ANDROID_VER}-${KERNEL_VER}.${{ inputs.sub_level }}-KSUN-GZ-${TIMESTAMP}.img"
+          mv bootimgs/boot-lz4.img "GKI-${ANDROID_VER}-${KERNEL_VER}.${{ inputs.sub_level }}-KSUN-LZ4-${TIMESTAMP}.img"
 
       - name: Get commit hashes for release
+        if: ${{ inputs.make_release && inputs.release_type != 'Actions' }}
         run: |
-          # Клонируем репозитории для получения хешей коммитов
-          git clone https://gitlab.com/pershoot/susfs4ksu -b ${{ inputs.susfs_branch }}
-          git clone https://github.com/infectedmushi/kernel_patches -b main # Чтобы получить KernelSU-Next
-          git clone https://android.googlesource.com/kernel/manifest -b ${{ steps.build-params.outputs.manifest_branch }} common # Для KSU-Next
-          cd common
-          curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/${{ inputs.ksun_branch }}/kernel/setup.sh" | bash -s ${{ inputs.ksun_branch }}
-          cd ..
-
           # Get SUSFS commit hashes
           cd susfs4ksu
           echo "SUSFS_COMMIT_HASH=$(git rev-parse HEAD)" >> $GITHUB_ENV
@@ -306,35 +371,24 @@ jobs:
           echo "NEXT_URL=https://github.com/rifsxd/KernelSU-Next/commit/$(git rev-parse HEAD)" >> $GITHUB_ENV
           cd ../..
 
-      - name: Generate and Create New Tag
+      - name: Set release body
+        if: ${{ inputs.make_release && inputs.release_type != 'Actions' }}
         run: |
-          # Используем NEW_TAG, сформированный в job build-gki
-          echo "New tag: ${{ env.NEW_TAG }}"
-          git tag ${{ env.NEW_TAG }}
-          git push origin ${{ env.NEW_TAG }}
-          
-      - name: Set release body # Добавлено из 2.yml
-        run: |
-          ANDROID_VER_SHORT=$(echo "${{ inputs.android_version }}" | cut -d'-' -f1)
-          KERNEL_VER_FULL="${{ steps.build-params.outputs.kernel_version }}" # Полная версия ядра из build-params
-          KERNEL_SUB_LEVEL_PLACEHOLDER="0" # Заглушка, так как в 1.yml нет sub_level
-          
           cat << 'EOF' > release_body.md
-          ## GKI Kernels With KernelSU Next & SUSFS v1.5.8
+          ## GKI KernelSU-Next Build - ${{ env.NEW_TAG }}
           
-          **Branch type for KSU:** KernelSU-Next
+          **Branch type for KSU:** KernelSU-Next (${{ inputs.ksun_branch }})
           **Current Kernel Tag:** ${{ env.NEW_TAG }}
           
           ### Features:
-          - KernelSU-Next
+          - KernelSU-Next (${{ inputs.ksun_branch }} branch)
           - SUSFS v1.5.8
-          - Wireguard Support
-          - Maphide LineageOS Detections
-          - Futile Maphide for jit-zygote-cache Detections  
+          - Scope-Minimized Manual hooks v1.4
           - Magic Mount Support
-          - CMD_SUSFS_HIDE_SUS_MNTS_FOR_ALL_PROCS Support for all kernels
-          - Manual Hooks [scope_min_manual_hooks_v1.4]
-          - BBR v1 Support
+          - Simple Maphide for LineageOS Detections
+          - Futile Maphide for jit-zygote-cache Detections
+          - Wireguard Support
+          - BBR Support
           
           ### Notes:
           - KernelSU-Next, SUS SU Mode 2 will show as disabled or not compatible due to non-kprobe hooks and is not needed anymore!
@@ -347,34 +401,80 @@ jobs:
           
           ### Managers:
           - KernelSU: https://github.com/tiann/KernelSU / https://t.me/KernelSU_group
-          - 5ec1cff's KernelSU: https://github.com/5ec1cff/KernelSU / https://t.me/mksu_ci
           - KernelSU-Next: https://github.com/rifsxd/KernelSU-Next / https://t.me/ksunext_group
-          - rsuntk: https://github.com/rsuntk/KernelSU / https://t.me/rsukrnlsu
-          - backslashxx: https://github.com/backslashxx/KernelSU
           
           ### Commit Hashes (at the time of release):
-          - KernelSU Next: [${{ env.NEXT_REF }}](${{ env.NEXT_URL }})
+          - KernelSU Next (${{ inputs.ksun_branch }}): [${{ env.NEXT_REF }}](${{ env.NEXT_URL }})
           - SUSFS4KSU ${{ inputs.susfs_branch }}: [${{ env.SUSFS_COMMIT_HASH }}](${{ env.SUSFS_COMMIT_URL }})
           
           ### Build Info:
-          - Android Version: ${{ ANDROID_VER_SHORT }}
-          - Kernel Version: ${{ KERNEL_VER_FULL }}.${{ KERNEL_SUB_LEVEL_PLACEHOLDER }}
+          - Android Version: ${{ inputs.android_version }}
+          - Kernel Version: ${{ steps.build-params.outputs.kernel_version }}.${{ inputs.sub_level }}
+          - OS Patch Level: ${{ inputs.os_patch_level }}
+          - KernelSU Branch: ${{ inputs.ksun_branch }}
+          - SUSFS Branch: ${{ inputs.susfs_branch }}
           - Build Date: $(date -u +"%Y-%m-%d %H:%M UTC")
           EOF
+
+      - name: Upload Build Artifacts (Actions only)
+        if: ${{ inputs.make_release && inputs.release_type == 'Actions' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-gki-${{ inputs.android_version }}-${{ inputs.ksun_branch }}-${{ env.TIMESTAMP }}
+          path: |
+            *.zip
+            *.img
+          retention-days: 7
+
+      - name: Upload Artifacts (No Release)
+        if: ${{ !inputs.make_release }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-gki-${{ inputs.android_version }}-${{ inputs.ksun_branch }}-${{ env.TIMESTAMP }}
+          path: |
+            *.zip
+            *.img
+          retention-days: 7
+
+  trigger-release:
+    needs: build-gki
+    runs-on: ubuntu-latest
+    if: ${{ inputs.make_release && inputs.release_type != 'Actions' }}
+    env:
+      REPO_OWNER: ${{ github.repository_owner }}
+      REPO_NAME: ${{ github.event.repository.name }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Generate and Create New Tag
+        run: |
+          BASE_TAG="v1.5.8-gki-r0"
+          LATEST_TAG=$(gh api repos/$REPO_OWNER/$REPO_NAME/tags --jq '.[0].name' || echo "$BASE_TAG")
+          if [[ "$LATEST_TAG" == *"gki"* ]]; then
+            NEW_TAG=$(echo "$LATEST_TAG" | awk -F'-r' '{suffix=$2; if (!suffix) suffix=0; suffix++; printf "%s-r%d", $1, suffix}')
+          else
+            NEW_TAG="$BASE_TAG"
+          fi
+          echo "New tag: $NEW_TAG"
+          echo "NEW_TAG=${NEW_TAG}" >> $GITHUB_ENV
+          git tag $NEW_TAG
+          git push origin $NEW_TAG
 
       - name: Download Artifacts
         uses: actions/download-artifact@v4
         with:
           path: ./downloaded-artifacts
-          name: kernel-gki-${{ inputs.android_version }}-${{ inputs.ksun_branch }}-${{ env.TIMESTAMP }} # Используем имя артефакта, соответствующее имени, которое было использовано при загрузке
 
-      - name: Create GitHub Release # Изменено для соответствия логике 2.yml
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ env.NEW_TAG }}
+          prerelease: ${{ inputs.release_type == 'Pre-Release' }}
           name: ${{ env.NEW_TAG }}
           body_path: release_body.md
-          prerelease: ${{ inputs.release_type == 'Pre-Release' }}
           files: |
             ./downloaded-artifacts/**/*.zip
             ./downloaded-artifacts/**/*.img
@@ -385,3 +485,14 @@ jobs:
         run: |
           echo "GitHub release created with the following files:"
           find ./downloaded-artifacts -type f \( -name "*.zip" -o -name "*.img" \) -exec basename {} \;
+
+      - name: Show build summary
+        run: |
+          echo "Build completed successfully!"
+          echo "Build artifacts created:"
+          echo "=== AnyKernel3 ZIP files ==="
+          find ./downloaded-artifacts -name "*.zip" -exec basename {} \;
+          echo "=== Boot IMG files ==="  
+          find ./downloaded-artifacts -name "*.img" -exec basename {} \;
+          echo "Release type: ${{ inputs.release_type }}"
+          echo "Release tag: ${{ env.NEW_TAG }}"
