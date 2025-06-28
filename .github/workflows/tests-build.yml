@@ -1,221 +1,116 @@
-name: Сборка и релиз GKI ядер
-
+name: Build GKI Kernel
 permissions:
   contents: write
-  actions: write
+  actions: write 
 
 on:
   workflow_dispatch:
     inputs:
-      make_release:
-        description: 'Создать релиз?'
+      android_version:
+        description: 'Android Version'
         required: true
-        type: boolean
-        default: false
-      kernel_version_to_build:
-        description: 'Выберите версию ядра для сборки'
-        required: true
+        default: 'android14'
         type: choice
         options:
-          - android12-5.10
-          - android13-5.10
-          - android13-5.15
-          - android14-5.15
-          - android14-6.1
-          - android15-6.6
-          - all
-        default: all
-      ksun_branch:
-        description: 'Выберите ветку KernelSU Next'
+          - android12
+          - android13
+          - android14
+          - android15
+      kernel_version:
+        description: 'Kernel Version'
         required: true
+        default: '6.1'
         type: choice
         options:
-          - stable
-          - next
-        default: next
-      lto_mode:
-        description: 'Выберите режим LTO'
+          - '5.10'
+          - '5.15'
+          - '6.1'
+          - '6.6'
+      sub_level:
+        description: 'Sub Level'
         required: true
-        type: choice
-        options:
-          - thin
-          - full
-        default: thin
-      android12_5_10_susfs_branch:
-        description: 'Выберите ветку SusFS для android12-5.10'
+        default: '138'
         type: string
-        default: 'gki-android12-5.10'
-      android13_5_10_susfs_branch:
-        description: 'Выберите ветку SusFS для android13-5.10'
+      os_patch_level:
+        description: 'OS Patch Level'
+        required: true
+        default: '2024-11'
         type: string
-        default: 'gki-android13-5.10'
-      android13_5_15_susfs_branch:
-        description: 'Выберите ветку SusFS для android13-5.15'
+      revision:
+        description: 'Revision (for Android 12 only)'
+        required: false
+        default: 'r1'
         type: string
-        default: 'gki-android13-5.15'
-      android14_5_15_susfs_branch:
-        description: 'Выберите ветку SusFS для android14-5.15'
-        type: string
-        default: 'gki-android14-5.15'
-      android14_6_1_susfs_branch:
-        description: 'Выберите ветку SusFS для android14-6.1'
-        type: string
-        default: 'gki-android14-6.1'
-      android15_6_6_susfs_branch:
-        description: 'Выберите ветку SusFS для android15-6.6'
-        type: string
-        default: 'gki-android15-6.6'
-  push:
-    branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
-  schedule:
-    - cron: '0 2 * * 0'  # Еженедельная сборка по воскресеньям в 2:00 UTC
-
-env:
-  # Значения по умолчанию для автоматических запусков
-  DEFAULT_KSUN_BRANCH: next
-  DEFAULT_LTO_MODE: thin
-  DEFAULT_MAKE_RELEASE: false
-  DEFAULT_KERNEL_VERSION: all
-  CCACHE_COMPILERCHECK: "%compiler% -dumpmachine; %compiler% -dumpversion"
-  CCACHE_NOHASHDIR: "true"
-  CCACHE_HARDLINK: "true"
 
 jobs:
-  build-gki-kernels:
-    name: Сборка GKI ядер
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - android_version: android12
-            kernel_version: "5.10"
-            branch: common-android12-5.10
-            kernel_key: android12-5.10
-          - android_version: android13
-            kernel_version: "5.10"
-            branch: common-android13-5.10
-            kernel_key: android13-5.10
-          - android_version: android13
-            kernel_version: "5.15"
-            branch: common-android13-5.15
-            kernel_key: android13-5.15
-          - android_version: android14
-            kernel_version: "5.15"
-            branch: common-android14-5.15
-            kernel_key: android14-5.15
-          - android_version: android14
-            kernel_version: "6.1"
-            branch: common-android14-6.1
-            kernel_key: android14-6.1
-          - android_version: android15
-            kernel_version: "6.6"
-            branch: common-android15-6.6
-            kernel_key: android15-6.6
+  build-gki:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
-    
+    timeout-minutes: 180
+    env:
+      CCACHE_COMPILERCHECK: "%compiler% -dumpmachine; %compiler% -dumpversion"
+      CCACHE_NOHASHDIR: "true"
+      CCACHE_HARDLINK: "true"
+      USE_CCACHE: "true"
+
     steps:
-      - name: Проверка необходимости сборки этой версии ядра
-        id: should-build
-        run: |
-          SELECTED_VERSION="${{ github.event.inputs.kernel_version_to_build || env.DEFAULT_KERNEL_VERSION }}"
-          CURRENT_VERSION="${{ matrix.kernel_key }}"
-          
-          if [[ "$SELECTED_VERSION" == "all" || "$SELECTED_VERSION" == "$CURRENT_VERSION" ]]; then
-            echo "should_build=true" >> $GITHUB_OUTPUT
-            echo "Сборка версии ядра: $CURRENT_VERSION"
-          else
-            echo "should_build=false" >> $GITHUB_OUTPUT
-            echo "Пропуск версии ядра: $CURRENT_VERSION (выбрано: $SELECTED_VERSION)"
-          fi
-
-      - name: Установка информации о сборке
-        if: steps.should-build.outputs.should_build == 'true'
-        id: build-info
-        run: |
-          KSUN_BRANCH="${{ github.event.inputs.ksun_branch || env.DEFAULT_KSUN_BRANCH }}"
-          LTO_MODE="${{ github.event.inputs.lto_mode || env.DEFAULT_LTO_MODE }}"
-          echo "Сборка GKI (${{ matrix.android_version }}, ${{ matrix.kernel_version }}, ${KSUN_BRANCH}, LTO: ${LTO_MODE})"
-          echo "ksun_branch=${KSUN_BRANCH}" >> $GITHUB_OUTPUT
-          echo "lto_mode=${LTO_MODE}" >> $GITHUB_OUTPUT
-          echo "susfs_branch=${{ github.event.inputs[format('{0}_susfs_branch', matrix.kernel_key)] || format('gki-{0}', matrix.kernel_key) }}" >> $GITHUB_OUTPUT
-
-      - name: Максимизация дискового пространства
-        if: steps.should-build.outputs.should_build == 'true'
-        uses: easimon/maximize-build-space@master
+      - name: Maximize Build Space
+        uses: AdityaGarg8/remove-unwanted-software@v5
         with:
-          root-reserve-mb: 4096
-          swap-size-mb: 1024
-          remove-dotnet: 'true'          # Освобождает ~2 ГБ
-          remove-android: 'true'         # Освобождает ~9 ГБ
-          remove-haskell: 'true'         # Освобождает ~5.2 ГБ
-          remove-codeql: 'true'          # Освобождает ~5.4 ГБ
-          remove-docker-images: 'true'   # Освобождает ~3.2 ГБ
-
-      - name: Установка переменной окружения CONFIG
-        if: steps.should-build.outputs.should_build == 'true'
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+          remove-codeql: 'true'
+          remove-docker-images: 'true'
+          remove-large-packages: 'true'
+          remove-swapfile: 'true'
+          remove-cached-tools: 'false'
+          verbose: 'true'
+          
+      - name: Set Environment Variables
         run: |
-          # Динамическое создание CONFIG на основе значений matrix
-          CONFIG="${{ matrix.android_version }}-${{ matrix.kernel_version }}"
+          echo "KBUILD=/home/runner/work/kernel_akita" >> $GITHUB_ENV
+          echo "KERNEL_BUILDS=/home/runner/work/kernel_builds" >> $GITHUB_ENV
+          echo "CONFIG=${{ inputs.android_version }}-${{ inputs.kernel_version }}-${{ inputs.sub_level }}" >> $GITHUB_ENV
           
-          # Установка CONFIG как переменной окружения для последующих шагов
-          echo "CONFIG=$CONFIG" >> $GITHUB_ENV
+          # Create build directories
+          mkdir -p /home/runner/work/kernel_builds/${{ inputs.kernel_version }}.${{ inputs.sub_level }}
           
-          echo "CONFIG установлено в: $CONFIG"
+          # Set timestamp function
+          echo "TIMESTAMP=$(date +%Y%m%d-%H%M)" >> $GITHUB_ENV
 
-      - name: Установка ccache
-        if: steps.should-build.outputs.should_build == 'true'
+      - name: Install Dependencies
         run: |
           sudo apt update
-          sudo apt install -y ccache
+          sudo apt install -y ccache git curl unzip zip python3 python3-pip build-essential bc bison flex libssl-dev libelf-dev
+          
+          # Install repo tool
+          mkdir -p ~/.local/bin
+          curl https://storage.googleapis.com/git-repo-downloads/repo > ~/.local/bin/repo
+          chmod a+rx ~/.local/bin/repo
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-      - name: Установка bazel
-        if: steps.should-build.outputs.should_build == 'true'
-        run: |
-          BAZEL_VERSION="6.5.0"
-          echo "Установка bazel версии $BAZEL_VERSION..."
-          curl -LO "https://github.com/bazelbuild/bazel/releases/download/$BAZEL_VERSION/bazel-$BAZEL_VERSION-linux-x86_64"
-          chmod +x bazel-$BAZEL_VERSION-linux-x86_64
-          sudo mv bazel-$BAZEL_VERSION-linux-x86_64 /usr/local/bin/bazel
-          bazel version || { echo "Ошибка: не удалось установить bazel"; exit 1; }
-          echo "BAZEL_PATH=/usr/local/bin/bazel" >> $GITHUB_ENV
-
-      - name: Настройка ccache
-        if: steps.should-build.outputs.should_build == 'true'
+      - name: Set up ccache
         run: |
           mkdir -p ~/.cache/bazel
           ccache --version
-          ccache --max-size=2G
+          ccache --max-size=4G
           ccache --set-config=compression=true
           echo "CCACHE_DIR=$HOME/.ccache" >> $GITHUB_ENV
 
-      - name: Загрузка инструментария
-        if: steps.should-build.outputs.should_build == 'true'
+      - name: Download toolchain
         run: |
           AOSP_MIRROR=https://android.googlesource.com
           BRANCH=main-kernel-build-2024
           git clone $AOSP_MIRROR/kernel/prebuilts/build-tools -b $BRANCH --depth 1 kernel-build-tools
           git clone $AOSP_MIRROR/platform/system/tools/mkbootimg -b $BRANCH --depth 1 mkbootimg
-          # Проверка наличия bazel в инструментарии
-          if [ -f "./kernel-build-tools/tools/bazel" ]; then
-            echo "bazel найден в kernel-build-tools/tools/bazel"
-            chmod +x ./kernel-build-tools/tools/bazel
-            echo "BAZEL_PATH=$GITHUB_WORKSPACE/kernel-build-tools/tools/bazel" >> $GITHUB_ENV
-          else
-            echo "bazel не найден в kernel-build-tools, используется /usr/local/bin/bazel"
-          fi
 
-      - name: Установка переменных окружения для инструментария
-        if: steps.should-build.outputs.should_build == 'true'
+      - name: Set environment variables for tools
         run: |
           echo "AVBTOOL=$GITHUB_WORKSPACE/kernel-build-tools/linux-x86/bin/avbtool" >> $GITHUB_ENV
           echo "MKBOOTIMG=$GITHUB_WORKSPACE/mkbootimg/mkbootimg.py" >> $GITHUB_ENV
           echo "UNPACK_BOOTIMG=$GITHUB_WORKSPACE/mkbootimg/unpack_bootimg.py" >> $GITHUB_ENV
 
-      - name: Установка ключа подписи загрузки
-        if: steps.should-build.outputs.should_build == 'true'
+      - name: Set boot sign key
         env:
           BOOT_SIGN_KEY: ${{ secrets.BOOT_SIGN_KEY }}
         run: |
@@ -223,398 +118,283 @@ jobs:
             echo "$BOOT_SIGN_KEY" > ./kernel-build-tools/linux-x86/share/avb/testkey_rsa2048.pem
             echo "BOOT_SIGN_KEY_PATH=$GITHUB_WORKSPACE/kernel-build-tools/linux-x86/share/avb/testkey_rsa2048.pem" >> $GITHUB_ENV
           else
-            echo "BOOT_SIGN_KEY не установлен. Используется ключ AOSP..."
+            echo "BOOT_SIGN_KEY is not set. Using AOSP sign key..."
             echo "BOOT_SIGN_KEY_PATH=$GITHUB_WORKSPACE/kernel-build-tools/linux-x86/share/avb/testkey_rsa2048.pem" >> $GITHUB_ENV
           fi
 
-      - name: Установка Repo
-        if: steps.should-build.outputs.should_build == 'true'
+      - name: Clean old files and clone dependencies
         run: |
-          mkdir -p ./git-repo
-          echo "Загрузка инструмента repo..."
-          curl https://storage.googleapis.com/git-repo-downloads/repo > ./git-repo/repo
-          chmod a+rx ./git-repo/repo
-          echo "REPO=$GITHUB_WORKSPACE/./git-repo/repo" >> $GITHUB_ENV
-
-      - name: Клонирование зависимостей
-        if: steps.should-build.outputs.should_build == 'true'
-        run: |
-          echo "Клонирование SuSFS, патчей ядра и AnyKernel3..."
-          git clone https://gitlab.com/simonpunk/susfs4ksu.git -b ${{ steps.build-info.outputs.susfs_branch }}
+          echo "Removing old files and folders..."
+          rm -rf susfs4ksu kernel_patches AnyKernel3-p8a common bootimgs
+          
+          echo "Cloning SuSFS, Wild patches, AnyKernel3 and other dependencies..."
+          git clone https://gitlab.com/simonpunk/susfs4ksu.git -b gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}
           git clone https://github.com/infectedmushi/kernel_patches -b main
           git clone https://github.com/deepongi-labs/AnyKernel3-p8a -b gki-2.0
 
-      - name: Проверка дискового пространства перед синхронизацией
-        if: steps.should-build.outputs.should_build == 'true'
+      - name: Initialize and Sync Kernel Source
         run: |
-          echo "Дисковое пространство перед синхронизацией исходного кода ядра:"
-          df -h
-
-      - name: Инициализация и синхронизация исходного кода ядра
-        if: steps.should-build.outputs.should_build == 'true'
-        run: |
-          echo "Создание папки для конфигурации: $CONFIG..."
-          mkdir -p "$CONFIG"
-          cd "$CONFIG"
-          echo "Инициализация и синхронизация исходного кода ядра..."
-          $REPO init --depth=1 --u https://android.googlesource.com/kernel/manifest -b ${{ matrix.branch }} --repo-rev=v2.16
-          REMOTE_BRANCH=$(git ls-remote https://android.googlesource.com/kernel/common ${{ matrix.branch }})
+          echo "Repo init and sync..."
+          FORMATTED_BRANCH="${{ inputs.android_version }}-${{ inputs.kernel_version }}-${{ inputs.os_patch_level }}"
+          
+          repo init --depth=1 --u https://android.googlesource.com/kernel/manifest -b common-${FORMATTED_BRANCH}
+          
+          # Check for deprecated branch
+          REMOTE_BRANCH=$(git ls-remote https://android.googlesource.com/kernel/common ${FORMATTED_BRANCH} || echo "")
           DEFAULT_MANIFEST_PATH=.repo/manifests/default.xml
-          if grep -q deprecated <<< $REMOTE_BRANCH; then
-            echo "Обнаружена устаревшая ветка: ${{ matrix.branch }}"
-            sed -i "s/\"${{ matrix.branch }}\"/\"deprecated\/${{ matrix.branch }}\"/g" $DEFAULT_MANIFEST_PATH
+          if echo "$REMOTE_BRANCH" | grep -q "deprecated"; then
+            echo "Found deprecated branch: $FORMATTED_BRANCH"
+            sed -i "s/\"${FORMATTED_BRANCH}\"/\"deprecated\/${FORMATTED_BRANCH}\"/g" $DEFAULT_MANIFEST_PATH
           fi
-          $REPO --version
-          $REPO --trace sync -c -j$(nproc --all) --no-tags --fail-fast
-
-      - name: Настройка KernelSU Next
-        if: steps.should-build.outputs.should_build == 'true'
-        run: |
-          cd "$CONFIG/common"
-          echo "Добавление KSU-Next..."
-          KSUN_BRANCH="${{ steps.build-info.outputs.ksun_branch }}"
-          curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/${KSUN_BRANCH}/kernel/setup.sh" | bash -s ${KSUN_BRANCH}
-
-      - name: Применение патчей SuSFS
-        if: steps.should-build.outputs.should_build == 'true'
-        run: |
-          cd "$CONFIG/common"
-          echo "Применение патчей SUSFS..."
           
-          # Проверка наличия файла патча для данной версии ядра
-          PATCH_FILE="../susfs4ksu/kernel_patches/50_add_susfs_in_${{ steps.build-info.outputs.susfs_branch }}.patch"
-          if [ -f "$PATCH_FILE" ]; then
-            cp -v "$PATCH_FILE" ./
-            cp -v ../susfs4ksu/kernel_patches/fs/* ./fs/ 2>/dev/null || true
-            cp -v ../susfs4ksu/kernel_patches/include/linux/* ./include/linux/ 2>/dev/null || true
-            patch -p1 --forward --fuzz=3 < "50_add_susfs_in_${{ steps.build-info.outputs.susfs_branch }}.patch"
+          repo --trace sync -c -j$(nproc --all) --no-tags --fail-fast
+
+      - name: Add KSU-Next
+        run: |
+          echo "Entering kernel directory..."
+          cd common
+          echo "Adding KSU-Next..."
+          curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -s next
+
+      - name: Apply SUSFS patches
+        run: |
+          echo "Applying SUSFS patches..."
+          cd common
+          
+          # Copy SUSFS patches
+          cp -v ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch ./
+          cp -v ../susfs4ksu/kernel_patches/fs/* ./fs/
+          cp -v ../susfs4ksu/kernel_patches/include/linux/* ./include/linux/
+          
+          # Apply main SUSFS patch
+          patch -p1 --forward --fuzz=3 < 50_add_susfs_in_gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch
+          
+          # Apply KSU-Next specific patches
+          cd ./KernelSU-Next
+          cp -v ../../kernel_patches/next/0001-kernel-implement-susfs-v1.5.8-KernelSU-Next-v1.0.8.patch ./
+          patch -p1 --fuzz=3 < 0001-kernel-implement-susfs-v1.5.8-KernelSU-Next-v1.0.8.patch
+          
+          # Apply additional KSU-Next fix
+          curl -Ls "https://github.com/cvnertnc/KernelSU-Next/commit/6a7707dc38fc9217dbdc79fe471220383dec2369.patch" | patch -p1 --fuzz=3
+          
+          cd ..
+
+      - name: Apply additional patches
+        run: |
+          cd common
+          
+          echo "Applying more hide stuff and manual hooks patch..."
+          cp -v ../kernel_patches/69_hide_stuff.patch ./
+          patch -p1 -F 3 < 69_hide_stuff.patch
+          
+          echo "Removing exports..."
+          sed -i '/^[[:space:]]*"protected_exports_list"[[:space:]]*:[[:space:]]*"android\/abi_gki_protected_exports_aarch64",$/d' ./BUILD.bazel
+          rm -v android/abi_gki_protected_exports_* || true
+
+      - name: Add configuration settings
+        run: |
+          echo "Adding KSU configuration settings to gki_defconfig..."
+          
+          # KSU settings
+          echo "CONFIG_KSU=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_KPROBES_HOOK=n" >> ./common/arch/arm64/configs/gki_defconfig
+          
+          # SUSFS settings
+          echo "CONFIG_KSU_SUSFS=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_SUS_KSTAT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_SUS_OVERLAYFS=n" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_TRY_UMOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_SPOOF_UNAME=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_ENABLE_LOG=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_SUS_SU=n" >> ./common/arch/arm64/configs/gki_defconfig
+          
+          # Additional tmpfs config
+          echo "CONFIG_TMPFS_XATTR=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_TMPFS_POSIX_ACL=y" >> ./common/arch/arm64/configs/gki_defconfig
+          
+          # Additional network config
+          echo "CONFIG_IP_NF_TARGET_TTL=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_IP6_NF_TARGET_HL=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_IP6_NF_MATCH_HL=y" >> ./common/arch/arm64/configs/gki_defconfig
+          
+          # BBR Config
+          echo "CONFIG_TCP_CONG_ADVANCED=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_TCP_CONG_BBR=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_NET_SCH_FQ=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_TCP_CONG_BIC=n" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_TCP_CONG_WESTWOOD=n" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_TCP_CONG_HTCP=n" >> ./common/arch/arm64/configs/gki_defconfig
+
+      - name: Modify kernel build settings
+        run: |
+          echo "Modifying kernel build settings..."
+          
+          # Modify setlocalversion
+          sed -i '$s|echo "\$res"|echo "\$res-TheFloresto+"|' ./common/scripts/setlocalversion
+          
+          # Modify stamp.bzl
+          sed -i "/stable_scmversion_cmd/s/-maybe-dirty//g" ./build/kernel/kleaf/impl/stamp.bzl
+          
+          # Remove check_defconfig
+          sed -i '2s/check_defconfig//' ./common/build.config.gki
+          
+          # Set build timestamp
+          sed -i "s|build-timestamp = \$(or \$(KBUILD_BUILD_TIMESTAMP), \$(build-timestamp-auto))|build-timestamp = \"$(date -u +"%a %b %d %T UTC %Y")\"|" ./common/init/Makefile
+
+      - name: Build kernel
+        run: |
+          echo "Building kernel..."
+          
+          # Build with Bazel
+          if [ "${{ inputs.android_version }}" == "android14" ] || [ "${{ inputs.android_version }}" == "android15" ]; then
+            tools/bazel build --config=fast --lto=thin //common:kernel_aarch64_dist
           else
-            echo "Предупреждение: патч SuSFS не найден для этой версии ядра"
-          fi
-
-      - name: Применение патчей KernelSU Next
-        if: steps.should-build.outputs.should_build == 'true'
-        run: |
-          cd "$CONFIG/common/KernelSU-Next"
-          KSUN_BRANCH="${{ steps.build-info.outputs.ksun_branch }}"
-          if [ -f "../../kernel_patches/${KSUN_BRANCH}/0001-kernel-implement-susfs-v1.5.8-KernelSU-Next-v1.0.8.patch" ]; then
-            cp -v ../../kernel_patches/${KSUN_BRANCH}/0001-kernel-implement-susfs-v1.5.8-KernelSU-Next-v1.0.8.patch ./
-            patch -p1 --fuzz=3 < 0001-kernel-implement-susfs-v1.5.8-KernelSU-Next-v1.0.8.patch
+            # For older versions, try alternative build method
+            tools/bazel build --config=fast --lto=thin //common:kernel_aarch64_dist
           fi
           
-          # Применение дополнительных патчей KSU
-          curl -Ls "https://github.com/cvnertnc/KernelSU-Next/commit/6a7707dc38fc9217dbdc79fe471220383dec2369.patch" | patch -p1 --fuzz=3 || true
-
-      - name: Применение дополнительных патчей
-        if: steps.should-build.outputs.should_build == 'true'
-        run: |
-          cd "$CONFIG/common"
-          echo "Применение патчей hide stuff и manual hooks..."
-          if [ -f "../kernel_patches/69_hide_stuff.patch" ]; then
-            cp -v ../kernel_patches/69_hide_stuff.patch ./
-            patch -p1 -F 3 < 69_hide_stuff.patch || true
-          fi
-          
-          echo "Удаление экспортов..."
-          sed -i '/^[[:space:]]*"protected_exports_list"[[:space:]]*:[[:space:]]*"android\/abi_gki_protected_exports_aarch64",$/d' ./BUILD.bazel 2>/dev/null || true
-          rm -f android/abi_gki_protected_exports_* 2>/dev/null || true
-
-      - name: Конфигурация ядра
-        if: steps.should-build.outputs.should_build == 'true'
-        run: |
-          cd "$CONFIG/common"
-          echo "Добавление конфигураций ядра..."
-          
-          # Конфигурации KernelSU
-          cat >> ./arch/arm64/configs/gki_defconfig << EOF
-          CONFIG_KSU=y
-          CONFIG_KSU_KPROBES_HOOK=n
-          EOF
-          
-          # Конфигурации SuSFS
-          cat >> ./arch/arm64/configs/gki_defconfig << EOF
-          CONFIG_KSU_SUSFS=y
-          CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
-          CONFIG_KSU_SUSFS_SUS_PATH=y
-          CONFIG_KSU_SUSFS_SUS_MOUNT=y
-          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y
-          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y
-          CONFIG_KSU_SUSFS_SUS_KSTAT=y
-          CONFIG_KSU_SUSFS_SUS_OVERLAYFS=n
-          CONFIG_KSU_SUSFS_TRY_UMOUNT=y
-          CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y
-          CONFIG_KSU_SUSFS_SPOOF_UNAME=y
-          CONFIG_KSU_SUSFS_ENABLE_LOG=y
-          CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
-          CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
-          CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
-          CONFIG_KSU_SUSFS_SUS_SU=n
-          EOF
-          
-          # Дополнительные конфигурации
-          cat >> ./arch/arm64/configs/gki_defconfig << EOF
-          CONFIG_TMPFS_XATTR=y
-          CONFIG_TMPFS_POSIX_ACL=y
-          CONFIG_IP_NF_TARGET_TTL=y
-          CONFIG_IP6_NF_TARGET_HL=y
-          CONFIG_IP6_NF_MATCH_HL=y
-          CONFIG_TCP_CONG_ADVANCED=y
-          CONFIG_TCP_CONG_BBR=y
-          CONFIG_NET_SCH_FQ=y
-          CONFIG_TCP_CONG_BIC=n
-          CONFIG_TCP_CONG_WESTWOOD=n
-          CONFIG_TCP_CONG_HTCP=n
-          EOF
-
-      - name: Изменение имени ядра
-        if: steps.should-build.outputs.should_build == 'true'
-        run: |
-          cd "$CONFIG/common"
-          # Изменение UTS_VERSION
-          perl -pi -e 's{UTS_VERSION="\$\(echo \$UTS_VERSION \$CONFIG_FLAGS \$TIMESTAMP \| cut -b -\$UTS_LEN\)"}{UTS_VERSION="#1 SMP PREEMPT Sun Apr 20 04:20:00 UTC 2025"}' ./scripts/mkcompile_h
-          
-          sed -i '$s|echo "\$res"|echo "\$res-TheFloresto+"|' ./scripts/setlocalversion
-          sed -i "/stable_scmversion_cmd/s/-maybe-dirty//g" ../build/kernel/kleaf/impl/stamp.bzl 2>/dev/null || true
-          sed -i '2s/check_defconfig//' ./build.config.gki 2>/dev/null || true
-          sed -i "s|build-timestamp = \$(or \$(KBUILD_BUILD_TIMESTAMP), \$(build-timestamp-auto))|build-timestamp = \"Sun Apr 20 04:20:00 UTC 2025\"|" ./init/Makefile
-
-      - name: Сборка ядра
-        if: steps.should-build.outputs.should_build == 'true'
-        run: |
-          set -e
-          set -x
-          cd "$CONFIG/common"
-          export USE_CCACHE=1
-          export CCACHE_DIR=$HOME/.ccache
-          
-          LTO_MODE="${{ steps.build-info.outputs.lto_mode }}"
-          echo "Сборка ядра с режимом LTO: $LTO_MODE"
-          
-          if [ -f "../build/build.sh" ]; then
-            echo "Сборка с использованием build.sh..."
-            LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh CC="/usr/bin/ccache clang" || exit 1
-          else
-            echo "Сборка с использованием bazel..."
-            ${BAZEL_PATH} build --disk_cache=/home/runner/.cache/bazel --config=fast --lto=$LTO_MODE //common:kernel_aarch64_dist || exit 1
-          fi
+          echo "Kernel build completed!"
           ccache --show-stats
 
-      - name: Создание папки bootimgs и копирование образов для Android 12/13
-        if: ${{ steps.should-build.outputs.should_build == 'true' && (matrix.android_version == 'android12' || matrix.android_version == 'android13') }}
+      - name: Copy kernel images
         run: |
+          echo "Copying Images..."
           mkdir -p bootimgs
-          echo "Создание папки bootimgs и копирование образов..."
-          cp -v ./$CONFIG/out/${{ matrix.android_version }}-${{ matrix.kernel_version }}/dist/Image ./bootimgs
-          cp -v ./$CONFIG/out/${{ matrix.android_version }}-${{ matrix.kernel_version }}/dist/Image.lz4 ./bootimgs
-          cp -v ./$CONFIG/out/${{ matrix.android_version }}-${{ matrix.kernel_version }}/dist/Image ./
-          cp -v ./$CONFIG/out/${{ matrix.android_version }}-${{ matrix.kernel_version }}/dist/Image.lz4 ./
           
-          # Создание gzip-образа файла Image
-          gzip -n -k -f -9 ./Image > ./Image.gz
-
-      - name: Создание папки bootimgs и копирование образов для Android 14/15
-        if: ${{ steps.should-build.outputs.should_build == 'true' && (matrix.android_version == 'android14' || matrix.android_version == 'android15') }}
-        run: |
-          mkdir -p bootimgs
-          echo "Создание папки bootimgs и копирование образов..."
-          cp -v ./$CONFIG/bazel-bin/common/kernel_aarch64/Image ./bootimgs
-          cp -v ./$CONFIG/bazel-bin/common/kernel_aarch64/Image.lz4 ./bootimgs
-          cp -v ./$CONFIG/bazel-bin/common/kernel_aarch64/Image ./
-          cp -v ./$CONFIG/bazel-bin/common/kernel_aarch64/Image.lz4 ./
-          
-          # Создание gzip-образа файла Image
-          gzip -n -k -f -9 ./Image > ./Image.gz
-
-      - name: Создание ZIP-файлов для разных форматов
-        if: steps.should-build.outputs.should_build == 'true'
-        run: |
-          echo "Создание ZIP-файлов для всех форматов..."
-          cd ./AnyKernel3-p8a
-          
-          TIMESTAMP=$(date +"%Y%m%d-%H%M")
-          
-          # Создание ZIP для формата RAW
-          ZIP_NAME="AK3-${{ matrix.android_version }}-${{ matrix.kernel_version }}-KSUN-RAW-${TIMESTAMP}.zip"
-          echo "Создание ZIP-файла: $ZIP_NAME..."
-          mv ../Image ./Image
-          zip -r "../$ZIP_NAME" ./*
-          rm ./Image
-          
-          # Создание ZIP для формата LZ4
-          ZIP_NAME="AK3-${{ matrix.android_version }}-${{ matrix.kernel_version }}-KSUN-LZ4-${TIMESTAMP}.zip"
-          echo "Создание ZIP-файла: $ZIP_NAME..."
-          mv ../Image.lz4 ./Image.lz4
-          zip -r "../$ZIP_NAME" ./*
-          rm ./Image.lz4
-          
-          # Создание ZIP для формата GZ
-          ZIP_NAME="AK3-${{ matrix.android_version }}-${{ matrix.kernel_version }}-KSUN-GZ-${TIMESTAMP}.zip"
-          echo "Создание ZIP-файла: $ZIP_NAME..."
-          mv ../Image.gz ./Image.gz
-          zip -r "../$ZIP_NAME" ./*
-          rm ./Image.gz
-
-      - name: Сборка загрузочного образа для Android 12
-        if: ${{ steps.should-build.outputs.should_build == 'true' && matrix.android_version == 'android12' }}
-        run: |
-          cd bootimgs
-          
-          GKI_URL=https://dl.google.com/android/gki/gki-certified-boot-android12-5.10-2023-01_r1.zip
-          
-          echo "Загрузка GKI ядра..."
-          curl -Lo gki-kernel.zip "$GKI_URL"
-          
-          echo "Распаковка загруженного ядра..."
-          unzip gki-kernel.zip && rm gki-kernel.zip
-          
-          echo "Распаковка boot.img..."
-          FULL_PATH=$(pwd)/boot-5.10.img
-          echo "Распаковка с использованием: $FULL_PATH"
-          
-          $UNPACK_BOOTIMG --boot_img="$FULL_PATH"
-          
-          # Создание gzip-образа файла Image
-          gzip -n -k -f -9 ./Image > ./Image.gz
-          
-          echo "Сборка boot.img"
-          $MKBOOTIMG --header_version 4 --kernel Image --output boot.img --ramdisk out/ramdisk --os_version 12.0.0 --os_patch_level 2023-01
-          $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
-          cp ./boot.img ../${{ matrix.android_version }}-${{ matrix.kernel_version }}-KSUN-RAW-$(date +"%Y%m%d-%H%M").img
-          
-          echo "Сборка boot-gz.img"
-          $MKBOOTIMG --header_version 4 --kernel Image.gz --output boot-gz.img --ramdisk out/ramdisk --os_version 12.0.0 --os_patch_level 2023-01
-          $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-gz.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
-          cp ./boot-gz.img ../${{ matrix.android_version }}-${{ matrix.kernel_version }}-KSUN-GZ-$(date +"%Y%m%d-%H%M").img
-          
-          echo "Сборка boot-lz4.img"
-          $MKBOOTIMG --header_version 4 --kernel Image.lz4 --output boot-lz4.img --ramdisk out/ramdisk --os_version 12.0.0 --os_patch_level 2023-01
-          $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-lz4.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
-          cp ./boot-lz4.img ../${{ matrix.android_version }}-${{ matrix.kernel_version }}-KSUN-LZ4-$(date +"%Y%m%d-%H%M").img
-
-      - name: Сборка загрузочного образа для Android 13/14/15
-        if: ${{ steps.should-build.outputs.should_build == 'true' && (matrix.android_version == 'android13' || matrix.android_version == 'android14' || matrix.android_version == 'android15') }}
-        run: |
-          cd bootimgs
-          
-          # Создание gzip-образа файла Image
-          gzip -n -k -f -9 ./Image > ./Image.gz
-          
-          echo "Сборка boot.img"
-          $MKBOOTIMG --header_version 4 --kernel Image --output boot.img
-          $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
-          cp ./boot.img ../${{ matrix.android_version }}-${{ matrix.kernel_version }}-KSUN-RAW-$(date +"%Y%m%d-%H%M").img
-          
-          echo "Сборка boot-gz.img"
-          $MKBOOTIMG --header_version 4 --kernel Image.gz --output boot-gz.img
-          $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-gz.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
-          cp ./boot-gz.img ../${{ matrix.android_version }}-${{ matrix.kernel_version }}-KSUN-GZ-$(date +"%Y%m%d-%H%M").img
-          
-          echo "Сборка boot-lz4.img"
-          $MKBOOTIMG --header_version 4 --kernel Image.lz4 --output boot-lz4.img
-          $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-lz4.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
-          cp ./boot-lz4.img ../${{ matrix.android_version }}-${{ matrix.kernel_version }}-KSUN-LZ4-$(date +"%Y%m%d-%H%M").img
-
-      - name: Сжатие всех img-файлов с помощью gzip
-        if: steps.should-build.outputs.should_build == 'true'
-        run: |
-          for image in *.img; do
-            gzip -vnf9 "$image"
-          done
-
-      - name: Загрузка артефактов
-        if: steps.should-build.outputs.should_build == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: gki-kernel-${{ matrix.android_version }}-${{ matrix.kernel_version }}
-          path: |
-            *.zip
-            *.img
-            *.img.gz
-          retention-days: 30
-
-  trigger-release:
-    needs: build-gki-kernels
-    runs-on: ubuntu-latest
-    if: ${{ github.event.inputs.make_release == 'true' }}
-    env:
-      REPO_OWNER: ${{ github.repository_owner }}
-      REPO_NAME: ${{ github.event.repository.name }}
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      RELEASE_NAME: "*ТЕСТОВАЯ СБОРКА* GKI Kernels с KernelSU Next и SUSFS v1.5.8 *ТЕСТОВАЯ СБОРКА*"
-      RELEASE_NOTES: |
-        Этот релиз содержит KernelSU Next и SUSFS v1.5.8 для различных версий ядер GKI
-        
-        Модуль: 
-        -> https://github.com/sidex15/ksu_module_susfs
-
-        Неофициальные менеджеры:
-        -> https://github.com/KernelSU-Next/KernelSU-Next
-
-        Особенности:
-        [+] KernelSU-Next
-        [+] SUSFS v1.5.8
-        [+] Поддержка Wireguard
-        [+] Maphide для обнаружения LineageOS
-        [+] Futile Maphide для обнаружения jit-zygote-cache
-        [+] Поддержка Magic Mount
-        [+] Исправление утечки сообщений ptrace для ядер < 5.16
-        [+] Ручные хуки [scope_min_manual_hooks_v1.5]
-        [+] Поддержка CONFIG_TMPFS_XATTR [Поддержка Mountify]
-        [+] Поддержка BBR v1
-
-    steps:
-      - name: Получение исходного кода
-        uses: actions/checkout@v4
-
-      - name: Создание и пуш нового тега
-        run: |
-          BASE_TAG="v1.5.8-gki-r0"
-          LATEST_TAG=$(gh api repos/$REPO_OWNER/$REPO_NAME/tags --jq '.[0].name' 2>/dev/null || echo "")
-          
-          if [ -z "$LATEST_TAG" ] || [[ ! "$LATEST_TAG" =~ gki ]]; then
-            NEW_TAG="$BASE_TAG"
+          if [ "${{ inputs.android_version }}" == "android14" ] || [ "${{ inputs.android_version }}" == "android15" ]; then
+            # For Android 14/15 with Bazel
+            cp -v ./bazel-bin/common/kernel_aarch64/Image.lz4 ./bootimgs/Image.lz4
+            cp -v ./bazel-bin/common/kernel_aarch64/Image.gz ./bootimgs/Image.gz || gzip -c ./bazel-bin/common/kernel_aarch64/Image > ./bootimgs/Image.gz
+            cp -v ./bazel-bin/common/kernel_aarch64/Image ./bootimgs/Image
+            
+            # Try to copy boot images if they exist
+            cp -v ./bazel-bin/common/kernel_aarch64_gki_artifacts/boot.img ./bootimgs/boot.img || echo "boot.img not found"
+            cp -v ./bazel-bin/common/kernel_aarch64_gki_artifacts/boot-gz.img ./bootimgs/boot-gz.img || echo "boot-gz.img not found"
+            cp -v ./bazel-bin/common/kernel_aarch64_gki_artifacts/boot-lz4.img ./bootimgs/boot-lz4.img || echo "boot-lz4.img not found"
           else
-            NEW_TAG=$(echo "$LATEST_TAG" | awk -F'-r' '{suffix=$2; if (!suffix) suffix=0; suffix++; printf "%s-r%d", $1, suffix}')
+            # For older Android versions
+            cp -v ./out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist/Image ./bootimgs/Image
+            cp -v ./out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist/Image.lz4 ./bootimgs/Image.lz4
+            gzip -c ./bootimgs/Image > ./bootimgs/Image.gz
           fi
-          
-          echo "Новый тег: $NEW_TAG"
-          echo "NEW_TAG=${NEW_TAG}" >> $GITHUB_ENV
-          
-          git tag $NEW_TAG
-          git push origin $NEW_TAG
 
-      - name: Загрузка артефактов
-        uses: actions/download-artifact@v4
-        with:
-          path: ./downloaded-artifacts
-
-      - name: Создание релиза GitHub
-        id: create_release
-        uses: actions/create-release@v1
-        with:
-          tag_name: ${{ env.NEW_TAG }}
-          prerelease: true
-          release_name: ${{ env.RELEASE_NAME }}
-          body: ${{ env.RELEASE_NOTES }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Динамическая загрузка активов релиза
+      - name: Create AnyKernel3 ZIP files
         run: |
-          for dir in ./downloaded-artifacts/gki-kernel-*; do
-            if [ -d "$dir" ]; then
-              for file in "$dir"/*; do
-                if [ -f "$file" ]; then
-                  echo "Загрузка $file..."
-                  gh release upload ${{ env.NEW_TAG }} "$file"
-                fi
-              done
+          echo "Creating ZIP for kernel image..."
+          
+          # Set ZIP names with timestamp
+          export ZIP_NAME_LZ4="AK3-A${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-KSUN-LZ4-${TIMESTAMP}.zip"
+          export ZIP_NAME_GZ="AK3-A${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-KSUN-GZ-${TIMESTAMP}.zip"
+          export ZIP_NAME_RAW="AK3-A${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-KSUN-RAW-${TIMESTAMP}.zip"
+          
+          # Create LZ4 ZIP
+          cd AnyKernel3-p8a
+          mv ../bootimgs/Image.lz4 ./Image.lz4
+          zip -r "$ZIP_NAME_LZ4" ./*
+          mv "$ZIP_NAME_LZ4" ../$ZIP_NAME_LZ4
+          rm -f ./Image.lz4
+          cd ..
+          echo "AK3 LZ4 zip done!"
+          
+          # Create GZ ZIP
+          cd AnyKernel3-p8a
+          mv ../bootimgs/Image.gz ./Image.gz
+          zip -r "$ZIP_NAME_GZ" ./*
+          mv "$ZIP_NAME_GZ" ../$ZIP_NAME_GZ
+          rm -f ./Image.gz
+          cd ..
+          echo "AK3 GZ zip done!"
+          
+          # Create RAW ZIP
+          cd AnyKernel3-p8a
+          mv ../bootimgs/Image ./Image
+          zip -r "$ZIP_NAME_RAW" ./*
+          mv "$ZIP_NAME_RAW" ../$ZIP_NAME_RAW
+          rm -f ./Image
+          cd ..
+          echo "AK3 RAW zip done!"
+
+      - name: Create boot images (if available)
+        run: |
+          if [ -f "./bootimgs/boot.img" ]; then
+            export BUILD_IMG="A${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-KSUN-RAW-${TIMESTAMP}.img"
+            export BUILD_IMG_GZ="A${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-KSUN-GZ-${TIMESTAMP}.img"
+            export BUILD_IMG_LZ4="A${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-KSUN-LZ4-${TIMESTAMP}.img"
+            
+            cp ./bootimgs/boot.img ./$BUILD_IMG
+            cp ./bootimgs/boot-gz.img ./$BUILD_IMG_GZ 2>/dev/null || echo "boot-gz.img not available"
+            cp ./bootimgs/boot-lz4.img ./$BUILD_IMG_LZ4 2>/dev/null || echo "boot-lz4.img not available"
+          else
+            echo "Boot images not available, creating them manually..."
+            
+            # Create boot images manually using mkbootimg
+            cd bootimgs
+            
+            # Create gzip version if not exists
+            if [ ! -f "Image.gz" ]; then
+              gzip -c Image > Image.gz
+            fi
+            
+            echo "Building boot.img"
+            $MKBOOTIMG --header_version 4 --kernel Image --output boot.img
+            $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
+            
+            echo "Building boot-gz.img"
+            $MKBOOTIMG --header_version 4 --kernel Image.gz --output boot-gz.img
+            $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-gz.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
+            
+            echo "Building boot-lz4.img"
+            $MKBOOTIMG --header_version 4 --kernel Image.lz4 --output boot-lz4.img
+            $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-lz4.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
+            
+            # Copy to parent directory with proper names
+            export BUILD_IMG="A${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-KSUN-RAW-${TIMESTAMP}.img"
+            export BUILD_IMG_GZ="A${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-KSUN-GZ-${TIMESTAMP}.img"
+            export BUILD_IMG_LZ4="A${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-KSUN-LZ4-${TIMESTAMP}.img"
+            
+            cp boot.img ../$BUILD_IMG
+            cp boot-gz.img ../$BUILD_IMG_GZ
+            cp boot-lz4.img ../$BUILD_IMG_LZ4
+            
+            cd ..
+          fi
+
+      - name: Compress all img files
+        run: |
+          echo "Compressing all img files..."
+          for image in *.img; do
+            if [ -f "$image" ]; then
+              gzip -vnf9 "$image"
             fi
           done
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Отображение загруженных файлов
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: KSUN-${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ env.TIMESTAMP }}
+          path: |
+            *.zip
+            *.img.gz
+            bootimgs/Image*
+          retention-days: 7
+
+      - name: Show build summary
         run: |
-          echo "Релиз GitHub создан со следующими файлами:"
-          find ./downloaded-artifacts -type f -name "*.zip" -o -name "*.img" -o -name "*.img.gz" | sort
+          echo "Build completed successfully!"
+          echo "Build artifacts:"
+          ls -la *.zip *.img.gz 2>/dev/null || echo "No final artifacts found"
+          echo "Boot images:"
+          ls -la bootimgs/ 2>/dev/null || echo "No bootimgs directory"
+          echo "Disk usage:"
+          df -h
+          echo "ccache stats:"
+          ccache --show-stats
