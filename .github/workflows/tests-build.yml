@@ -1,3 +1,4 @@
+```yaml
 name: Сборка и релиз GKI ядер
 
 permissions:
@@ -173,17 +174,6 @@ jobs:
           sudo apt update
           sudo apt install -y ccache
 
-      - name: Установка bazel
-        if: steps.should-build.outputs.should_build == 'true'
-        run: |
-          BAZEL_VERSION="6.5.0"
-          echo "Установка bazel версии $BAZEL_VERSION..."
-          curl -LO "https://github.com/bazelbuild/bazel/releases/download/$BAZEL_VERSION/bazel-$BAZEL_VERSION-linux-x86_64"
-          chmod +x bazel-$BAZEL_VERSION-linux-x86_64
-          sudo mv bazel-$BAZEL_VERSION-linux-x86_64 /usr/local/bin/bazel
-          bazel version || { echo "Ошибка: не удалось установить bazel"; exit 1; }
-          echo "BAZEL_PATH=/usr/local/bin/bazel" >> $GITHUB_ENV
-
       - name: Настройка ccache
         if: steps.should-build.outputs.should_build == 'true'
         run: |
@@ -200,14 +190,6 @@ jobs:
           BRANCH=main-kernel-build-2024
           git clone $AOSP_MIRROR/kernel/prebuilts/build-tools -b $BRANCH --depth 1 kernel-build-tools
           git clone $AOSP_MIRROR/platform/system/tools/mkbootimg -b $BRANCH --depth 1 mkbootimg
-          # Проверка наличия bazel в инструментарии (на случай, если он там есть)
-          if [ -f "./kernel-build-tools/tools/bazel" ]; then
-            echo "bazel найден в kernel-build-tools/tools/bazel"
-            chmod +x ./kernel-build-tools/tools/bazel
-            echo "BAZEL_PATH=$GITHUB_WORKSPACE/kernel-build-tools/tools/bazel" >> $GITHUB_ENV
-          else
-            echo "bazel не найден в kernel-build-tools, используется /usr/local/bin/bazel"
-          fi
 
       - name: Установка переменных окружения для инструментария
         if: steps.should-build.outputs.should_build == 'true'
@@ -242,7 +224,7 @@ jobs:
         if: steps.should-build.outputs.should_build == 'true'
         run: |
           echo "Клонирование SuSFS, патчей ядра и AnyKernel3..."
-          git clone https://gitlab.com/simonpunk/susfs4ksu.git -b ${{ github.event.inputs[format('{0}_susfs_branch', matrix.kernel_key)] || format('gki-{0}', matrix.kernel_key) }}
+          git clone https://gitlab.com/simonpunk/susfs4ksu.git -b ${{ steps.get-susfs-branch.outputs.susfs_branch }}
           git clone https://github.com/infectedmushi/kernel_patches -b main
           git clone https://github.com/deepongi-labs/AnyKernel3-p8a -b gki-2.0
 
@@ -284,12 +266,12 @@ jobs:
           echo "Применение патчей SUSFS..."
           
           # Проверка наличия файла патча для данной версии ядра
-          PATCH_FILE="../susfs4ksu/kernel_patches/50_add_susfs_in_${{ github.event.inputs[format('{0}_susfs_branch', matrix.kernel_key)] || format('gki-{0}', matrix.kernel_key) }}.patch"
+          PATCH_FILE="../susfs4ksu/kernel_patches/50_add_susfs_in_${{ steps.get-susfs-branch.outputs.susfs_branch }}.patch"
           if [ -f "$PATCH_FILE" ]; then
             cp -v "$PATCH_FILE" ./
             cp -v ../susfs4ksu/kernel_patches/fs/* ./fs/ 2>/dev/null || true
             cp -v ../susfs4ksu/kernel_patches/include/linux/* ./include/linux/ 2>/dev/null || true
-            patch -p1 --forward --fuzz=3 < "50_add_susfs_in_${{ github.event.inputs[format('{0}_susfs_branch', matrix.kernel_key)] || format('gki-{0}', matrix.kernel_key) }}.patch"
+            patch -p1 --forward --fuzz=3 < "50_add_susfs_in_${{ steps.get-susfs-branch.outputs.susfs_branch }}.patch"
           else
             echo "Предупреждение: патч SuSFS не найден для этой версии ядра"
           fi
@@ -373,7 +355,7 @@ jobs:
         run: |
           cd "$CONFIG/common"
           # Изменение UTS_VERSION
-          perl -pi -e 's{UTS_VERSION="\$\(echo \$UTS_VERSION \$CONFIG_FLAGS \$TIMESTAMP \| cut -b -\$UTS_LEN\)"}{UTS_VERSION="#1 SMP PREEMPT Sun Apr 20 04:20:00 UTC 2025"}' ./scripts/mkcompile_h
+          perl -pi -e 's{UTS_VERSION="\$$$ echo \$UTS_VERSION \$CONFIG_FLAGS \$TIMESTAMP \| cut -b -\$UTS_LEN $$"}{UTS_VERSION="#1 SMP PREEMPT Sun Apr 20 04:20:00 UTC 2025"}' ./scripts/mkcompile_h
           
           sed -i '$s|echo "\$res"|echo "\$res-TheFloresto+"|' ./scripts/setlocalversion
           sed -i "/stable_scmversion_cmd/s/-maybe-dirty//g" ../build/kernel/kleaf/impl/stamp.bzl 2>/dev/null || true
@@ -393,11 +375,9 @@ jobs:
           echo "Сборка ядра с режимом LTO: $LTO_MODE"
           
           if [ -f "../build/build.sh" ]; then
-            echo "Сборка с использованием build.sh..."
             LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh CC="/usr/bin/ccache clang" || exit 1
           else
-            echo "Сборка с использованием bazel..."
-            ${BAZEL_PATH} build --disk_cache=/home/runner/.cache/bazel --config=fast --lto=$LTO_MODE //common:kernel_aarch64_dist || exit 1
+            ../tools/bazel build --disk_cache=/home/runner/.cache/bazel --config=fast --lto=$LTO_MODE //common:kernel_aarch64_dist || exit 1
           fi
           ccache --show-stats
 
