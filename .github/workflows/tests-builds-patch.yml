@@ -1,0 +1,357 @@
+name: Build and Release GKI Kernels ТЕСТ
+
+permissions:
+  contents: write
+  actions: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      make_release:
+        description: 'Do you want to create a release?'
+        required: true
+        type: boolean
+        default: false
+      release_type:
+        description: "Choose Release Type"
+        required: true
+        type: choice
+        options:
+          - Actions
+          - Pre-Release
+          - Release
+        default: Pre-Release
+      ksun_branch:
+        description: "Choose KernelSU Next Branch"
+        required: true
+        type: choice
+        options:
+          - stable
+          - next
+        default: next
+      android_version:
+        description: "Choose Android Version"
+        required: true
+        type: choice
+        options:
+          - android12-5.10
+          - android13-5.10
+          - android13-5.15
+          - android14-5.15
+          - android14-6.1
+          - android15-6.6
+        default: android14-6.1
+      susfs_branch:
+        description: "Choose SusFS Branch"
+        type: string
+        default: "gki-android14-6.1"
+      patch_mode:
+        description: "Patch Mode"
+        required: true
+        type: choice
+        options:
+          - standard
+          - preset
+          - custom
+        default: standard
+      patch_preset:
+        description: "Choose Preset Patch (if preset mode)"
+        type: choice
+        options:
+          - "5.10"
+          - "5.15"
+          - "6.1"
+          - "6.6"
+          - "5.10-2025-06"
+          - "5.15-2025-06"
+          - "6.1-2025-06"
+          - "6.6-2025-06"
+        default: "6.1"
+      custom_patch:
+        description: "Custom Patch Tag (if custom mode, e.g. 6.1-2025-07)"
+        type: string
+        default: ""
+
+jobs:
+  build-gki:
+    name: Build GKI (${{ inputs.android_version }}, KSU-${{ inputs.ksun_branch }}, Patch-${{ inputs.patch_mode == 'standard' && 'standard' || inputs.patch_mode == 'preset' && inputs.patch_preset || inputs.custom_patch }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      CCACHE_COMPILERCHECK: "%compiler% -dumpmachine; %compiler% -dumpversion"
+      CCACHE_NOHASHDIR: "true"
+      CCACHE_HARDLINK: "true"
+      USE_CCACHE: "true"
+    
+    outputs:
+      timestamp: ${{ steps.set-env.outputs.timestamp }}
+      new_tag: ${{ steps.set-env.outputs.new_tag }}
+      kernel_full_version: ${{ steps.kernel-version.outputs.kernel_full_version }}
+      kernel_sublevel: ${{ steps.kernel-version.outputs.kernel_sublevel }}
+      artifact_name: ${{ steps.set-env.outputs.artifact_name }}
+      patch_info: ${{ steps.patch-params.outputs.patch_info }}
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Maximize Build Space
+        uses: AdityaGarg8/remove-unwanted-software@v5
+        with:
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+          remove-codeql: 'true'
+          remove-docker-images: 'true'
+          remove-large-packages: 'true'
+          remove-swapfile: 'true'
+          remove-cached-tools: 'false'
+          verbose: 'true'
+
+      - name: Setup Build Environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git curl wget zip unzip build-essential bc bison flex libssl-dev libncurses5-dev libelf-dev ccache python3 python3-pip
+          
+      - name: Setup Repo Tool
+        run: |
+          mkdir -p ~/.bin
+          PATH="${HOME}/.bin:${PATH}"
+          curl https://storage.googleapis.com/git-repo-downloads/repo > ~/.bin/repo
+          chmod a+rx ~/.bin/repo
+          echo "${HOME}/.bin" >> $GITHUB_PATH
+
+      - name: Setup Git Config
+        run: |
+          git config --global user.email "action@github.com"
+          git config --global user.name "GitHub Action"
+
+      - name: Set up ccache
+        run: |
+          mkdir -p ~/.cache/bazel
+          ccache --version
+          ccache --max-size=4G
+          ccache --set-config=compression=true
+          echo "CCACHE_DIR=$HOME/.ccache" >> $GITHUB_ENV
+
+      - name: Set Environment Variables
+        id: set-env
+        run: |
+          TIMESTAMP=$(date +%Y%m%d-%H%M)
+          
+          # Determine patch suffix for naming
+          if [ "${{ inputs.patch_mode }}" = "standard" ]; then
+            PATCH_SUFFIX="std"
+          elif [ "${{ inputs.patch_mode }}" = "preset" ]; then
+            PATCH_SUFFIX="${{ inputs.patch_preset }}"
+          else
+            PATCH_SUFFIX="${{ inputs.custom_patch }}"
+          fi
+          
+          NEW_TAG=GKI-${{ inputs.android_version }}-KSUN-$(date +%Y%m%d-%H%M)
+          ARTIFACT_NAME=kernel-gki-${{ inputs.android_version }}-${{ inputs.ksun_branch }}-${PATCH_SUFFIX}-$TIMESTAMP
+          
+          echo "TIMESTAMP=$TIMESTAMP" >> $GITHUB_ENV
+          echo "NEW_TAG=$NEW_TAG" >> $GITHUB_ENV
+          echo "ARTIFACT_NAME=$ARTIFACT_NAME" >> $GITHUB_ENV
+          echo "PATCH_SUFFIX=$PATCH_SUFFIX" >> $GITHUB_ENV
+          echo "timestamp=$TIMESTAMP" >> $GITHUB_OUTPUT
+          echo "new_tag=$NEW_TAG" >> $GITHUB_OUTPUT
+          echo "artifact_name=$ARTIFACT_NAME" >> $GITHUB_OUTPUT
+
+      - name: Determine Build Parameters
+        id: build-params
+        run: |
+          case "${{ inputs.android_version }}" in
+            "android12-5.10")
+              KERNEL_VERSION="5.10"
+              MANIFEST_BRANCH="common-android12-5.10"
+              ;;
+            "android13-5.10")
+              KERNEL_VERSION="5.10"
+              MANIFEST_BRANCH="common-android13-5.10"
+              ;;
+            "android13-5.15")
+              KERNEL_VERSION="5.15"
+              MANIFEST_BRANCH="common-android13-5.15"
+              ;;
+            "android14-5.15")
+              KERNEL_VERSION="5.15"
+              MANIFEST_BRANCH="common-android14-5.15"
+              ;;
+            "android14-6.1")
+              KERNEL_VERSION="6.1"
+              MANIFEST_BRANCH="common-android14-6.1"
+              ;;
+            "android15-6.6")
+              KERNEL_VERSION="6.6"
+              MANIFEST_BRANCH="common-android15-6.6"
+              ;;
+            *)
+              echo "Unsupported Android version: ${{ inputs.android_version }}"
+              exit 1
+              ;;
+          esac
+          
+          echo "kernel_version=$KERNEL_VERSION" >> $GITHUB_OUTPUT
+          echo "manifest_branch=$MANIFEST_BRANCH" >> $GITHUB_OUTPUT
+
+      - name: Determine Patch Parameters
+        id: patch-params
+        run: |
+          echo "Patch mode: ${{ inputs.patch_mode }}"
+          
+          if [ "${{ inputs.patch_mode }}" = "standard" ]; then
+            # Standard mode - use default branch
+            PATCH_BRANCH="${{ steps.build-params.outputs.manifest_branch }}"
+            PATCH_TAG="standard"
+            PATCH_INFO="Standard (${{ steps.build-params.outputs.manifest_branch }})"
+            echo "Using standard patches from: $PATCH_BRANCH"
+            
+          elif [ "${{ inputs.patch_mode }}" = "preset" ]; then
+            # Preset mode - use predefined patches
+            PATCH_VALUE="${{ inputs.patch_preset }}"
+            PATCH_BRANCH="common-android-mainline"
+            PATCH_TAG="android-mainline-$PATCH_VALUE"
+            PATCH_INFO="Preset ($PATCH_TAG)"
+            echo "Using preset patch: $PATCH_TAG"
+            
+          elif [ "${{ inputs.patch_mode }}" = "custom" ]; then
+            # Custom mode - use user-defined patch
+            if [ -z "${{ inputs.custom_patch }}" ]; then
+              echo "Error: Custom patch is empty!"
+              exit 1
+            fi
+            PATCH_VALUE="${{ inputs.custom_patch }}"
+            PATCH_BRANCH="common-android-mainline"
+            PATCH_TAG="android-mainline-$PATCH_VALUE"
+            PATCH_INFO="Custom ($PATCH_TAG)"
+            echo "Using custom patch: $PATCH_TAG"
+            
+          else
+            echo "Error: Unknown patch mode: ${{ inputs.patch_mode }}"
+            exit 1
+          fi
+          
+          echo "patch_branch=$PATCH_BRANCH" >> $GITHUB_OUTPUT
+          echo "patch_tag=$PATCH_TAG" >> $GITHUB_OUTPUT
+          echo "patch_info=$PATCH_INFO" >> $GITHUB_OUTPUT
+          
+          echo "Final patch configuration:"
+          echo "  Branch: $PATCH_BRANCH"
+          echo "  Tag: $PATCH_TAG"
+          echo "  Info: $PATCH_INFO"
+
+      - name: Download toolchain
+        run: |
+          AOSP_MIRROR=https://android.googlesource.com
+          BRANCH=main-kernel-build-2024
+          git clone $AOSP_MIRROR/kernel/prebuilts/build-tools -b $BRANCH --depth 1 kernel-build-tools
+          git clone $AOSP_MIRROR/platform/system/tools/mkbootimg -b $BRANCH --depth 1 mkbootimg
+
+      - name: Set environment variables for tools
+        run: |
+          echo "AVBTOOL=$GITHUB_WORKSPACE/kernel-build-tools/linux-x86/bin/avbtool" >> $GITHUB_ENV
+          echo "MKBOOTIMG=$GITHUB_WORKSPACE/mkbootimg/mkbootimg.py" >> $GITHUB_ENV
+          echo "UNPACK_BOOTIMG=$GITHUB_WORKSPACE/mkbootimg/unpack_bootimg.py" >> $GITHUB_ENV
+
+      - name: Set boot sign key
+        env:
+          BOOT_SIGN_KEY: ${{ secrets.BOOT_SIGN_KEY }}
+        run: |
+          if [ ! -z "$BOOT_SIGN_KEY" ]; then
+            echo "$BOOT_SIGN_KEY" > ./kernel-build-tools/linux-x86/share/avb/testkey_rsa2048.pem
+            echo "BOOT_SIGN_KEY_PATH=$GITHUB_WORKSPACE/kernel-build-tools/linux-x86/share/avb/testkey_rsa2048.pem" >> $GITHUB_ENV
+          else
+            echo "BOOT_SIGN_KEY is not set. Using AOSP sign key..."
+            echo "BOOT_SIGN_KEY_PATH=$GITHUB_WORKSPACE/kernel-build-tools/linux-x86/share/avb/testkey_rsa2048.pem" >> $GITHUB_ENV
+          fi
+
+      - name: Clone Dependencies
+        run: |
+          echo "Cloning SuSFS, patches, and AnyKernel3..."
+          git clone https://gitlab.com/pershoot/susfs4ksu -b ${{ inputs.susfs_branch }}
+          git clone https://github.com/infectedmushi/kernel_patches -b main
+          git clone https://github.com/deepongi-labs/AnyKernel3-p8a -b gki-2.0
+
+      - name: Initialize and Sync Kernel Sources
+        run: |
+          echo "Initializing repo..."
+          
+          # Use the determined patch branch
+          REPO_BRANCH="${{ steps.patch-params.outputs.patch_branch }}"
+          echo "Using repository branch: $REPO_BRANCH"
+          
+          repo init --depth=1 --u https://android.googlesource.com/kernel/manifest -b $REPO_BRANCH
+          
+          # Check for deprecated branch
+          REMOTE_BRANCH=$(git ls-remote https://android.googlesource.com/kernel/common $REPO_BRANCH || echo "")
+          DEFAULT_MANIFEST_PATH=.repo/manifests/default.xml
+          if echo "$REMOTE_BRANCH" | grep -q "deprecated"; then
+            echo "Found deprecated branch: $REPO_BRANCH"
+            sed -i "s/\"$REPO_BRANCH\"/\"deprecated\/$REPO_BRANCH\"/g" $DEFAULT_MANIFEST_PATH
+          fi
+          
+          echo "Syncing sources..."
+          repo sync -c -j$(nproc) --no-tags --fail-fast
+
+      - name: Get Latest Kernel Version and Update Makefile
+        id: kernel-version
+        run: |
+          cd common
+          echo "Getting latest kernel version..."
+          
+          # Determine source for Makefile based on patch mode
+          if [ "${{ inputs.patch_mode }}" = "standard" ]; then
+            # Standard mode - use android version branch
+            MAKEFILE_BRANCH="${{ inputs.android_version }}"
+            echo "Using standard Makefile from branch: $MAKEFILE_BRANCH"
+            curl -s "https://android.googlesource.com/kernel/common/+/refs/heads/$MAKEFILE_BRANCH/Makefile?format=TEXT" | base64 -d > Makefile.latest
+          else
+            # Preset/Custom mode - use mainline with tag
+            MAKEFILE_TAG="${{ steps.patch-params.outputs.patch_tag }}"
+            echo "Using patched Makefile from tag: $MAKEFILE_TAG"
+            curl -s "https://android.googlesource.com/kernel/common/+/refs/tags/$MAKEFILE_TAG/Makefile?format=TEXT" | base64 -d > Makefile.latest
+          fi
+          
+          # Extract versions from Makefile
+          VERSION=$(grep "^VERSION = " Makefile.latest | head -1 | cut -d' ' -f3)
+          PATCHLEVEL=$(grep "^PATCHLEVEL = " Makefile.latest | head -1 | cut -d' ' -f3)
+          SUBLEVEL=$(grep "^SUBLEVEL = " Makefile.latest | head -1 | cut -d' ' -f3)
+          
+          echo "Latest kernel version: $VERSION.$PATCHLEVEL.$SUBLEVEL"
+          KERNEL_FULL_VERSION="$VERSION.$PATCHLEVEL.$SUBLEVEL"
+          echo "KERNEL_FULL_VERSION=$KERNEL_FULL_VERSION" >> $GITHUB_ENV
+          echo "KERNEL_SUBLEVEL=$SUBLEVEL" >> $GITHUB_ENV
+          echo "kernel_full_version=$KERNEL_FULL_VERSION" >> $GITHUB_OUTPUT
+          echo "kernel_sublevel=$SUBLEVEL" >> $GITHUB_OUTPUT
+          
+          # Backup current Makefile and replace
+          cp Makefile Makefile.backup
+          mv Makefile.latest Makefile
+          
+          echo "Makefile updated successfully"
+          echo "Current kernel version info:"
+          head -10 Makefile | grep -E "VERSION|PATCHLEVEL|SUBLEVEL"
+
+      - name: Apply Patch-specific Changes
+        run: |
+          cd common
+          
+          if [ "${{ inputs.patch_mode }}" != "standard" ]; then
+            echo "Applying patch-specific changes for: ${{ steps.patch-params.outputs.patch_tag }}"
+            
+            # Check if we need to cherry-pick or merge specific patches
+            PATCH_TAG="${{ steps.patch-params.outputs.patch_tag }}"
+            
+            # Try to checkout the specific tag if it exists
+            if git ls-remote --tags origin | grep -q "refs/tags/$PATCH_TAG"; then
+              echo "Found tag $PATCH_TAG, attempting to merge changes..."
+              git fetch origin tag $PATCH_TAG --no-tags
+              
+              # Create a temporary branch and try to merge the changes
+              git checkout -b temp-patch-branch
+              git merge FETCH_HEAD --no-edit || {
+                echo "Merge conflicts detected, trying to resolve automatically..."
+                git status
+                # You might want to add specific conflict resolution here
