@@ -1,4 +1,4 @@
-name: Build and Release GKI Kernels ТЕСТ
+name: Build and Release GKI Kernels
 
 permissions:
   contents: write
@@ -51,22 +51,8 @@ on:
         type: choice
         options:
           - standard
-          - preset
           - custom
         default: standard
-      patch_preset:
-        description: "Choose Preset Patch (if preset mode)"
-        type: choice
-        options:
-          - "5.10"
-          - "5.15"
-          - "6.1"
-          - "6.6"
-          - "5.10-2025-06"
-          - "5.15-2025-06"
-          - "6.1-2025-06"
-          - "6.6-2025-06"
-        default: "6.1"
       custom_patch:
         description: "Custom Patch Tag (if custom mode, e.g. 6.1-2025-07)"
         type: string
@@ -74,7 +60,7 @@ on:
 
 jobs:
   build-gki:
-    name: Build GKI (${{ inputs.android_version }}, KSU-${{ inputs.ksun_branch }}, Patch-${{ inputs.patch_mode == 'standard' && 'standard' || inputs.patch_mode == 'preset' && inputs.patch_preset || inputs.custom_patch }})
+    name: Build GKI (${{ inputs.android_version }}, KSU-${{ inputs.ksun_branch }}, Patch-${{ inputs.patch_mode == 'standard' && 'standard' || inputs.custom_patch }})
     runs-on: ubuntu-latest
     timeout-minutes: 180
     env:
@@ -142,8 +128,6 @@ jobs:
           # Determine patch suffix for naming
           if [ "${{ inputs.patch_mode }}" = "standard" ]; then
             PATCH_SUFFIX="std"
-          elif [ "${{ inputs.patch_mode }}" = "preset" ]; then
-            PATCH_SUFFIX="${{ inputs.patch_preset }}"
           else
             PATCH_SUFFIX="${{ inputs.custom_patch }}"
           fi
@@ -208,14 +192,6 @@ jobs:
             PATCH_INFO="Standard (${{ steps.build-params.outputs.manifest_branch }})"
             echo "Using standard patches from: $PATCH_BRANCH"
             
-          elif [ "${{ inputs.patch_mode }}" = "preset" ]; then
-            # Preset mode - use predefined patches
-            PATCH_VALUE="${{ inputs.patch_preset }}"
-            PATCH_BRANCH="common-android-mainline"
-            PATCH_TAG="android-mainline-$PATCH_VALUE"
-            PATCH_INFO="Preset ($PATCH_TAG)"
-            echo "Using preset patch: $PATCH_TAG"
-            
           elif [ "${{ inputs.patch_mode }}" = "custom" ]; then
             # Custom mode - use user-defined patch
             if [ -z "${{ inputs.custom_patch }}" ]; then
@@ -270,7 +246,7 @@ jobs:
       - name: Clone Dependencies
         run: |
           echo "Cloning SuSFS, patches, and AnyKernel3..."
-          git clone https://gitlab.com/pershoot/susfs4ksu -b ${{ inputs.susfs_branch }}
+          git clone https://gitlab.com/simonpunk/susfs4ksu -b ${{ inputs.susfs_branch }}
           git clone https://github.com/infectedmushi/kernel_patches -b main
           git clone https://github.com/deepongi-labs/AnyKernel3-p8a -b gki-2.0
 
@@ -308,7 +284,7 @@ jobs:
             echo "Using standard Makefile from branch: $MAKEFILE_BRANCH"
             curl -s "https://android.googlesource.com/kernel/common/+/refs/heads/$MAKEFILE_BRANCH/Makefile?format=TEXT" | base64 -d > Makefile.latest
           else
-            # Preset/Custom mode - use mainline with tag
+            # Custom mode - use mainline with tag
             MAKEFILE_TAG="${{ steps.patch-params.outputs.patch_tag }}"
             echo "Using patched Makefile from tag: $MAKEFILE_TAG"
             curl -s "https://android.googlesource.com/kernel/common/+/refs/tags/$MAKEFILE_TAG/Makefile?format=TEXT" | base64 -d > Makefile.latest
@@ -355,3 +331,251 @@ jobs:
                 echo "Merge conflicts detected, trying to resolve automatically..."
                 git status
                 # You might want to add specific conflict resolution here
+              }
+            else
+              echo "Tag $PATCH_TAG not found, continuing with current state..."
+            fi
+          fi
+
+      - name: Setup KernelSU Next
+        run: |
+          cd common
+          echo "Adding KSU-Next..."
+          curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/${{ inputs.ksun_branch }}/kernel/setup.sh" | bash -s ${{ inputs.ksun_branch }}
+
+      - name: Apply SusFS Patches
+        run: |
+          cd common
+          echo "Applying SUSFS patches..."
+          cp -v ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-${{ inputs.android_version }}.patch ./
+          cp -rv ../susfs4ksu/kernel_patches/fs/* ./fs/
+          cp -rv ../susfs4ksu/kernel_patches/include/linux/* ./include/linux/
+          
+          patch -p1 --forward --fuzz=3 < 50_add_susfs_in_gki-${{ inputs.android_version }}.patch
+          
+          cd KernelSU-Next
+          cp -v ../../kernel_patches/next/0001-kernel-implement-susfs-v1.5.8-KernelSU-Next-v1.0.8.patch ./
+          patch -p1 --fuzz=3 < 0001-kernel-implement-susfs-v1.5.8-KernelSU-Next-v1.0.8.patch
+          cd ..
+
+      - name: Apply Additional Patches
+        run: |
+          cd common
+          echo "Applying additional patches..."
+          cp -v ../kernel_patches/69_hide_stuff.patch ./
+          cp -v ../kernel_patches/next/scope_min_manual_hooks_v1.4.patch ./
+          patch -p1 -F 3 < 69_hide_stuff.patch
+          patch -p1 -F 3 < scope_min_manual_hooks_v1.4.patch
+          
+          echo "Removing exports..."
+          sed -i '/^[[:space:]]*"protected_exports_list"[[:space:]]*:[[:space:]]*"android\/abi_gki_protected_exports_aarch64",$/d' ./BUILD.bazel
+          rm -f android/abi_gki_protected_exports_*
+
+      - name: Configure Kernel
+        run: |
+          cd common
+          echo "Adding KSU configuration to gki_defconfig..."
+          cat >> arch/arm64/configs/gki_defconfig << EOF
+          CONFIG_KSU=y
+          CONFIG_KSU_KPROBES_HOOK=n
+          CONFIG_KSU_SUSFS=y
+          CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
+          CONFIG_KSU_SUSFS_SUS_PATH=y
+          CONFIG_KSU_SUSFS_SUS_MOUNT=y
+          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y
+          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y
+          CONFIG_KSU_SUSFS_SUS_KSTAT=y
+          CONFIG_KSU_SUSFS_SUS_OVERLAYFS=n
+          CONFIG_KSU_SUSFS_TRY_UMOUNT=y
+          CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y
+          CONFIG_KSU_SUSFS_SPOOF_UNAME=y
+          CONFIG_KSU_SUSFS_ENABLE_LOG=y
+          CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
+          CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
+          CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
+          CONFIG_KSU_SUSFS_SUS_SU=n
+          CONFIG_TMPFS_XATTR=y
+          CONFIG_TMPFS_POSIX_ACL=y
+          CONFIG_IP_NF_TARGET_TTL=y
+          CONFIG_IP6_NF_TARGET_HL=y
+          CONFIG_IP6_NF_MATCH_HL=y
+          CONFIG_TCP_CONG_ADVANCED=y
+          CONFIG_TCP_CONG_BBR=y
+          CONFIG_NET_SCH_FQ=y
+          CONFIG_TCP_CONG_BIC=n
+          CONFIG_TCP_CONG_WESTWOOD=n
+          CONFIG_TCP_CONG_HTCP=n
+          EOF
+
+      - name: Build Kernel
+        run: |
+          cd common
+          echo "Building kernel..."
+          
+          # Modify version string without patch suffix
+          sed -i '$s|echo "\$res"|echo "\$res-TheFloresto"|' scripts/setlocalversion
+          sed -i "/stable_scmversion_cmd/s/-maybe-dirty//g" ../build/kernel/kleaf/impl/stamp.bzl
+          sed -i '2s/check_defconfig//' build.config.gki
+          sed -i "s|build-timestamp = \$(or \$(KBUILD_BUILD_TIMESTAMP), \$(build-timestamp-auto))|build-timestamp = \"$(date -u +"%a %b %d %T UTC %Y")\"|" init/Makefile
+          
+          cd ..
+          tools/bazel build --disk_cache=~/.cache/bazel-disk --experimental_multi_threaded_digest --config=fast --lto=thin //common:kernel_aarch64_dist
+          
+          echo "Kernel build completed!"
+          ccache --show-stats
+
+      - name: Prepare Artifacts
+        run: |
+          mkdir -p bootimgs
+          
+          # Copy kernel images
+          cp -v bazel-bin/common/kernel_aarch64/Image.lz4 bootimgs/
+          cp -v bazel-bin/common/kernel_aarch64/Image.gz bootimgs/ || gzip -c bazel-bin/common/kernel_aarch64/Image > bootimgs/Image.gz
+          cp -v bazel-bin/common/kernel_aarch64/Image bootimgs/
+          
+          # Copy boot images if they exist
+          cp -v bazel-bin/common/kernel_aarch64_gki_artifacts/boot.img bootimgs/ || echo "boot.img not found"
+          cp -v bazel-bin/common/kernel_aarch64_gki_artifacts/boot-gz.img bootimgs/ || echo "boot-gz.img not found"
+          cp -v bazel-bin/common/kernel_aarch64_gki_artifacts/boot-lz4.img bootimgs/ || echo "boot-lz4.img not found"
+
+      - name: Create boot images if needed
+        run: |
+          if [ ! -f "bootimgs/boot.img" ] || [ ! -f "bootimgs/boot-gz.img" ] || [ ! -f "bootimgs/boot-lz4.img" ]; then
+            echo "Creating boot images manually..."
+            cd bootimgs
+            
+            echo "Building boot.img (RAW)"
+            $MKBOOTIMG --header_version 4 --kernel Image --output boot.img
+            $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
+            
+            echo "Building boot.img (GZ)"
+            $MKBOOTIMG --header_version 4 --kernel Image.gz --output boot-gz.img
+            $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-gz.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
+            
+            echo "Building boot.img (LZ4)"
+            $MKBOOTIMG --header_version 4 --kernel Image.lz4 --output boot-lz4.img
+            $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-lz4.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
+            
+            cd ..
+          fi
+
+      - name: Create AnyKernel3 ZIPs
+        run: |
+          ANDROID_VER=$(echo "${{ inputs.android_version }}" | cut -d'-' -f1)
+          KERNEL_VER="${{ steps.build-params.outputs.kernel_version }}"
+          
+          # Create LZ4 ZIP
+          cd AnyKernel3-p8a
+          cp ../bootimgs/Image.lz4 ./
+          ZIP_NAME_LZ4="AK3-GKI-${ANDROID_VER}-${KERNEL_VER}.${{ env.KERNEL_SUBLEVEL }}-KSUN-LZ4-${{ env.TIMESTAMP }}.zip"
+          zip -r "$ZIP_NAME_LZ4" ./*
+          mv "$ZIP_NAME_LZ4" ../
+          rm Image.lz4
+          
+          # Create GZ ZIP
+          cp ../bootimgs/Image.gz ./
+          ZIP_NAME_GZ="AK3-GKI-${ANDROID_VER}-${KERNEL_VER}.${{ env.KERNEL_SUBLEVEL }}-KSUN-GZ-${{ env.TIMESTAMP }}.zip"
+          zip -r "$ZIP_NAME_GZ" ./*
+          mv "$ZIP_NAME_GZ" ../
+          rm Image.gz
+          
+          # Create RAW ZIP
+          cp ../bootimgs/Image ./
+          ZIP_NAME_RAW="AK3-GKI-${ANDROID_VER}-${KERNEL_VER}.${{ env.KERNEL_SUBLEVEL }}-KSUN-RAW-${{ env.TIMESTAMP }}.zip"
+          zip -r "$ZIP_NAME_RAW" ./*
+          mv "$ZIP_NAME_RAW" ../
+          rm Image
+          
+          cd ..
+          
+          # Rename boot images
+          mv bootimgs/boot.img "GKI-${ANDROID_VER}-${KERNEL_VER}.${{ env.KERNEL_SUBLEVEL }}-KSUN-RAW-${{ env.TIMESTAMP }}.img"
+          mv bootimgs/boot-gz.img "GKI-${ANDROID_VER}-${KERNEL_VER}.${{ env.KERNEL_SUBLEVEL }}-KSUN-GZ-${{ env.TIMESTAMP }}.img"
+          mv bootimgs/boot-lz4.img "GKI-${ANDROID_VER}-${KERNEL_VER}.${{ env.KERNEL_SUBLEVEL }}-KSUN-LZ4-${{ env.TIMESTAMP }}.img"
+
+      - name: Get commit hashes for release
+        if: ${{ inputs.make_release && inputs.release_type != 'Actions' }}
+        run: |
+          # Get SUSFS commit hashes
+          cd susfs4ksu
+          echo "SUSFS_COMMIT_HASH=$(git rev-parse HEAD)" >> $GITHUB_ENV
+          echo "SUSFS_COMMIT_URL=https://gitlab.com/simonpunk/susfs4ksu/-/commit/$(git rev-parse HEAD)" >> $GITHUB_ENV
+          cd ..
+          
+          # Get KernelSU-Next commit hash
+          cd common/KernelSU-Next
+          echo "NEXT_REF=$(git rev-parse HEAD | cut -c1-7)" >> $GITHUB_ENV
+          echo "NEXT_URL=https://github.com/rifsxd/KernelSU-Next/commit/$(git rev-parse HEAD)" >> $GITHUB_ENV
+          cd ../..
+
+      # Always upload artifacts to be available for the release job
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: |
+            *.zip
+            *.img
+          retention-days: 7
+
+  trigger-release:
+    needs: build-gki
+    runs-on: ubuntu-latest
+    if: ${{ inputs.make_release && inputs.release_type != 'Actions' }}
+    env:
+      REPO_OWNER: ${{ github.repository_owner }}
+      REPO_NAME: ${{ github.event.repository.name }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Wait a bit to ensure artifact is available
+      - name: Wait for artifact availability
+        run: sleep 30
+
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.build-gki.outputs.artifact_name }}
+          path: ./artifacts
+
+      - name: List downloaded artifacts
+        run: |
+          echo "Downloaded artifacts:"
+          find ./artifacts -type f -name "*.zip" -o -name "*.img" | sort
+          ls -la ./artifacts/
+
+      - name: Generate and Create New Tag
+        run: |
+          BASE_TAG="v1.5.8-gki-r0"
+          
+          # Check if any tags exist at all
+          LATEST_TAG=$(gh api repos/$REPO_OWNER/$REPO_NAME/tags --jq '.[0].name' 2>/dev/null || echo "")
+          
+          if [[ -z "$LATEST_TAG" ]]; then
+            # No tags exist, use base tag
+            NEW_TAG="$BASE_TAG"
+            echo "No existing tags found. Creating first tag: $NEW_TAG"
+          elif [[ "$LATEST_TAG" == *"gki-r"* ]]; then
+            # Extract the revision number and increment it
+            REVISION=$(echo "$LATEST_TAG" | grep -o 'r[0-9]*' | sed 's/r//')
+            NEW_REVISION=$((REVISION + 1))
+            NEW_TAG=$(echo "$LATEST_TAG" | sed "s/r[0-9]*/r$NEW_REVISION/")
+            echo "Found existing GKI tag: $LATEST_TAG"
+            echo "Creating new tag: $NEW_TAG"
+          else
+            # Existing tags don't match our pattern, use base tag
+            NEW_TAG="$BASE_TAG"
+            echo "Existing tags don't match GKI pattern. Creating: $NEW_TAG"
+          fi
+          
+          echo "NEW_TAG=${NEW_TAG}" >> $GITHUB_ENV
+          
+          # Check if tag already exists
+          if git ls-remote --tags origin | grep -q "refs/tags/$NEW_TAG"; then
+            echo "Tag $NEW_TAG already exists, skipping tag creation"
+          else
+            echo "Creating new tag: $NEW_TAG"
+            git tag $NEW_TAG
