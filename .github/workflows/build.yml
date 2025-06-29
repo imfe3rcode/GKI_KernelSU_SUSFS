@@ -404,12 +404,6 @@ jobs:
           # Remove check_defconfig
           sed -i '2s/check_defconfig//' ./common/build.config.gki
 
-      - name: Clear Bazel Cache
-        run: |
-          cd "$CONFIG"
-          echo "Clearing Bazel cache..."
-          tools/bazel clean
-
       - name: Build
         run: |
           set -e
