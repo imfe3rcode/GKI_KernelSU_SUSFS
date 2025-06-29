@@ -62,12 +62,15 @@ jobs:
   build-gki:
     name: Build GKI (${{ inputs.android_version }}, KSU-${{ inputs.ksun_branch }}, Patch-${{ inputs.patch_mode == 'standard' && 'standard' || inputs.custom_patch }})
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 300
     env:
       CCACHE_COMPILERCHECK: "%compiler% -dumpmachine; %compiler% -dumpversion"
       CCACHE_NOHASHDIR: "true"
       CCACHE_HARDLINK: "true"
       USE_CCACHE: "true"
+      DEBIAN_FRONTEND: noninteractive
+      # Reduce Bazel memory usage
+      BAZEL_STARTUP_OPTIONS: --host_jvm_args=-Xmx2g
     
     outputs:
       timestamp: ${{ steps.set-env.outputs.timestamp }}
@@ -78,32 +81,94 @@ jobs:
       patch_info: ${{ steps.patch-params.outputs.patch_info }}
     
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Maximize Build Space
-        uses: AdityaGarg8/remove-unwanted-software@v5
+      - name: Maximize build space
+        uses: easimon/maximize-build-space@master
         with:
+          root-reserve-mb: 8192
+          swap-size-mb: 1024
           remove-dotnet: 'true'
           remove-android: 'true'
           remove-haskell: 'true'
           remove-codeql: 'true'
           remove-docker-images: 'true'
-          remove-large-packages: 'true'
-          remove-swapfile: 'true'
-          remove-cached-tools: 'false'
-          verbose: 'true'
 
-      - name: Setup Build Environment
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Additional disk cleanup
         run: |
-          sudo apt-get update
-          sudo apt-get install -y git curl wget zip unzip build-essential bc bison flex libssl-dev libncurses5-dev libelf-dev ccache python3 python3-pip
+          echo "=== Initial disk usage ==="
+          df -h
           
+          # Remove more unnecessary packages
+          sudo apt-get remove -y --purge \
+            '^llvm-.*' \
+            '^libllvm.*' \
+            '^clang-.*' \
+            '^libclang.*' \
+            '^dotnet-.*' \
+            '^aspnetcore-.*' \
+            '^mono-.*' \
+            ghc* \
+            cabal-install \
+            powershell \
+            firefox \
+            thunderbird \
+            google-chrome-stable \
+            microsoft-edge-stable \
+            nodejs \
+            npm \
+            yarn
+          
+          sudo apt-get autoremove -y
+          sudo apt-get autoclean
+          
+          # Clean up additional large directories
+          sudo rm -rf \
+            /usr/share/dotnet \
+            /usr/local/share/boost \
+            /opt/ghc \
+            /usr/local/share/chromium \
+            /usr/local/share/powershell \
+            /usr/share/swift \
+            /usr/local/julia* \
+            /opt/hostedtoolcache/node \
+            /opt/hostedtoolcache/Python \
+            /opt/hostedtoolcache/go \
+            /usr/local/lib/android/sdk/ndk* \
+            /usr/local/lib/android/sdk/platforms \
+            /usr/local/lib/android/sdk/build-tools \
+            /usr/local/graalvm \
+            /usr/local/.ghcup \
+            /home/linuxbrew \
+            /tmp/* \
+            /var/tmp/*
+          
+          # Clean package cache
+          sudo apt-get clean
+          sudo rm -rf /var/lib/apt/lists/*
+          
+          echo "=== Disk usage after cleanup ==="
+          df -h
+
+      - name: Setup Build Environment (minimal)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            git curl wget zip unzip \
+            build-essential bc bison flex \
+            libssl-dev libncurses5-dev libelf-dev \
+            ccache python3 python3-pip \
+            lz4 rsync
+          
+          sudo apt-get clean
+          sudo rm -rf /var/lib/apt/lists/*
+
       - name: Setup Repo Tool
         run: |
           mkdir -p ~/.bin
           PATH="${HOME}/.bin:${PATH}"
-          curl https://storage.googleapis.com/git-repo-downloads/repo > ~/.bin/repo
+          curl -s https://storage.googleapis.com/git-repo-downloads/repo > ~/.bin/repo
           chmod a+rx ~/.bin/repo
           echo "${HOME}/.bin" >> $GITHUB_PATH
 
@@ -112,12 +177,14 @@ jobs:
           git config --global user.email "action@github.com"
           git config --global user.name "GitHub Action"
 
-      - name: Set up ccache
+      - name: Set up ccache (optimized)
         run: |
-          mkdir -p ~/.cache/bazel
+          mkdir -p ~/.ccache
           ccache --version
-          ccache --max-size=4G
+          ccache --max-size=1G
           ccache --set-config=compression=true
+          ccache --set-config=compression_level=6
+          ccache --set-config=cache_dir=$HOME/.ccache
           echo "CCACHE_DIR=$HOME/.ccache" >> $GITHUB_ENV
 
       - name: Set Environment Variables
@@ -125,7 +192,6 @@ jobs:
         run: |
           TIMESTAMP=$(date +%Y%m%d-%H%M)
           
-          # Determine patch suffix for naming
           if [ "${{ inputs.patch_mode }}" = "standard" ]; then
             PATCH_SUFFIX="std"
           else
@@ -193,14 +259,12 @@ jobs:
           echo "Patch mode: ${{ inputs.patch_mode }}"
           
           if [ "${{ inputs.patch_mode }}" = "standard" ]; then
-            # Standard mode - use default branch
             PATCH_BRANCH="${{ steps.build-params.outputs.manifest_branch }}"
             PATCH_TAG="standard"
             PATCH_INFO="Standard (${{ steps.build-params.outputs.manifest_branch }})"
             echo "Using standard patches from: $PATCH_BRANCH"
             
           elif [ "${{ inputs.patch_mode }}" = "custom" ]; then
-            # Custom mode - use user-defined patch
             if [ -z "${{ inputs.custom_patch }}" ]; then
               echo "Error: Custom patch is empty!"
               exit 1
@@ -219,18 +283,31 @@ jobs:
           echo "patch_branch=$PATCH_BRANCH" >> $GITHUB_OUTPUT
           echo "patch_tag=$PATCH_TAG" >> $GITHUB_OUTPUT
           echo "patch_info=$PATCH_INFO" >> $GITHUB_OUTPUT
-          
-          echo "Final patch configuration:"
-          echo "  Branch: $PATCH_BRANCH"
-          echo "  Tag: $PATCH_TAG"
-          echo "  Info: $PATCH_INFO"
 
-      - name: Download toolchain
+      - name: Download minimal toolchain
         run: |
+          echo "=== Disk space before toolchain download ==="
+          df -h
+          
           AOSP_MIRROR=https://android.googlesource.com
           BRANCH=main-kernel-build-2024
-          git clone $AOSP_MIRROR/kernel/prebuilts/build-tools -b $BRANCH --depth 1 kernel-build-tools
-          git clone $AOSP_MIRROR/platform/system/tools/mkbootimg -b $BRANCH --depth 1 mkbootimg
+          
+          # Only download essential tools
+          echo "Downloading minimal build tools..."
+          git clone $AOSP_MIRROR/kernel/prebuilts/build-tools -b $BRANCH --depth 1 --single-branch --filter=blob:limit=10M kernel-build-tools
+          
+          echo "Downloading mkbootimg..."
+          git clone $AOSP_MIRROR/platform/system/tools/mkbootimg -b $BRANCH --depth 1 --single-branch mkbootimg
+          
+          # Aggressive cleanup of toolchain
+          echo "Cleaning up toolchain..."
+          find kernel-build-tools -name "*.exe" -delete 2>/dev/null || true
+          find kernel-build-tools -name "*windows*" -type d -exec rm -rf {} + 2>/dev/null || true
+          find kernel-build-tools -name "*darwin*" -type d -exec rm -rf {} + 2>/dev/null || true
+          rm -rf kernel-build-tools/linux-x86/clang-r* 2>/dev/null || true
+          
+          echo "=== Disk space after toolchain cleanup ==="
+          df -h
 
       - name: Set environment variables for tools
         run: |
@@ -250,33 +327,58 @@ jobs:
             echo "BOOT_SIGN_KEY_PATH=$GITHUB_WORKSPACE/kernel-build-tools/linux-x86/share/avb/testkey_rsa2048.pem" >> $GITHUB_ENV
           fi
 
-      - name: Clone Dependencies
+      - name: Clone Dependencies (shallow)
         run: |
-          echo "Cloning SuSFS, patches, and AnyKernel3..."
-          git clone https://gitlab.com/simonpunk/susfs4ksu -b ${{ inputs.susfs_branch }}
-          git clone https://github.com/infectedmushi/kernel_patches -b main
-          git clone https://github.com/deepongi-labs/AnyKernel3-p8a -b gki-2.0
-
-      - name: Initialize and Sync Kernel Sources
-        run: |
-          echo "Initializing repo..."
+          echo "=== Disk space before cloning dependencies ==="
+          df -h
           
-          # Use the determined patch branch
+          echo "Cloning dependencies with minimal history..."
+          git clone https://gitlab.com/simonpunk/susfs4ksu -b ${{ inputs.susfs_branch }} --depth 1 --single-branch
+          git clone https://github.com/infectedmushi/kernel_patches -b main --depth 1 --single-branch
+          git clone https://github.com/deepongi-labs/AnyKernel3-p8a -b gki-2.0 --depth 1 --single-branch
+          
+          # Clean up git directories to save space
+          find . -name ".git" -type d -exec rm -rf {}/logs \; 2>/dev/null || true
+          find . -name ".git" -type d -exec rm -rf {}/refs/remotes \; 2>/dev/null || true
+          
+          echo "=== Disk space after cloning dependencies ==="
+          df -h
+
+      - name: Initialize Kernel Sources
+        run: |
+          echo "=== Disk space before repo init ==="
+          df -h
+          
           REPO_BRANCH="${{ steps.patch-params.outputs.patch_branch }}"
           echo "Using repository branch: $REPO_BRANCH"
           
-          repo init --depth=1 --u https://android.googlesource.com/kernel/manifest -b $REPO_BRANCH
+          # Initialize with minimal options
+          repo init --depth=1 --u https://android.googlesource.com/kernel/manifest -b $REPO_BRANCH --no-clone-bundle --current-branch
           
-          # Check for deprecated branch
-          REMOTE_BRANCH=$(git ls-remote https://android.googlesource.com/kernel/common $REPO_BRANCH || echo "")
-          DEFAULT_MANIFEST_PATH=.repo/manifests/default.xml
+          # Handle deprecated branches
+          REMOTE_BRANCH=$(git ls-remote https://android.googlesource.com/kernel/common $REPO_BRANCH 2>/dev/null || echo "")
           if echo "$REMOTE_BRANCH" | grep -q "deprecated"; then
             echo "Found deprecated branch: $REPO_BRANCH"
-            sed -i "s/\"$REPO_BRANCH\"/\"deprecated\/$REPO_BRANCH\"/g" $DEFAULT_MANIFEST_PATH
+            sed -i "s/\"$REPO_BRANCH\"/\"deprecated\/$REPO_BRANCH\"/g" .repo/manifests/default.xml
           fi
+
+      - name: Sync Kernel Sources (memory optimized)
+        run: |
+          echo "Syncing sources with memory optimization..."
+          # Use very limited parallelism and enable shallow sync
+          repo sync -c -j1 --no-tags --fail-fast --force-sync --no-clone-bundle --current-branch
           
-          echo "Syncing sources..."
-          repo sync -c -j$(nproc) --no-tags --fail-fast
+          echo "=== Disk space after repo sync ==="
+          df -h
+          
+          # Aggressive cleanup of repo metadata
+          echo "Cleaning up repo metadata..."
+          find .repo -name "*.git" -type d -exec rm -rf {}/logs \; 2>/dev/null || true
+          find .repo -name "*.git" -type d -exec rm -rf {}/refs \; 2>/dev/null || true
+          find .repo -name "*.git" -type d -exec rm -rf {}/objects/pack/*.idx \; 2>/dev/null || true
+          
+          # Remove repo tool after sync
+          rm -rf .repo/repo
 
       - name: Get Latest Kernel Version and Update Makefile
         id: kernel-version
@@ -284,38 +386,29 @@ jobs:
           cd common
           echo "Getting latest kernel version..."
           
-          # Determine source for Makefile based on patch mode
           if [ "${{ inputs.patch_mode }}" = "standard" ]; then
-            # Standard mode - use android version branch
             MAKEFILE_BRANCH="${{ inputs.android_version }}"
             echo "Using standard Makefile from branch: $MAKEFILE_BRANCH"
             curl -s "https://android.googlesource.com/kernel/common/+/refs/heads/$MAKEFILE_BRANCH/Makefile?format=TEXT" | base64 -d > Makefile.latest
           else
-            # Custom mode - use mainline with tag
             MAKEFILE_TAG="${{ steps.patch-params.outputs.patch_tag }}"
             echo "Using patched Makefile from tag: $MAKEFILE_TAG"
             curl -s "https://android.googlesource.com/kernel/common/+/refs/tags/$MAKEFILE_TAG/Makefile?format=TEXT" | base64 -d > Makefile.latest
           fi
           
-          # Extract versions from Makefile
-          VERSION=$(grep "^VERSION = " Makefile.latest | head -1 | cut -d' ' -f3)
-          PATCHLEVEL=$(grep "^PATCHLEVEL = " Makefile.latest | head -1 | cut -d' ' -f3)
-          SUBLEVEL=$(grep "^SUBLEVEL = " Makefile.latest | head -1 | cut -d' ' -f3)
+          VERSION=$(grep "^VERSION = " Makefile.latest | head -1 | awk '{print $3}')
+          PATCHLEVEL=$(grep "^PATCHLEVEL = " Makefile.latest | head -1 | awk '{print $3}')
+          SUBLEVEL=$(grep "^SUBLEVEL = " Makefile.latest | head -1 | awk '{print $3}')
           
-          echo "Latest kernel version: $VERSION.$PATCHLEVEL.$SUBLEVEL"
           KERNEL_FULL_VERSION="$VERSION.$PATCHLEVEL.$SUBLEVEL"
+          echo "Latest kernel version: $KERNEL_FULL_VERSION"
           echo "KERNEL_FULL_VERSION=$KERNEL_FULL_VERSION" >> $GITHUB_ENV
           echo "KERNEL_SUBLEVEL=$SUBLEVEL" >> $GITHUB_ENV
           echo "kernel_full_version=$KERNEL_FULL_VERSION" >> $GITHUB_OUTPUT
           echo "kernel_sublevel=$SUBLEVEL" >> $GITHUB_OUTPUT
           
-          # Backup current Makefile and replace
           cp Makefile Makefile.backup
           mv Makefile.latest Makefile
-          
-          echo "Makefile updated successfully"
-          echo "Current kernel version info:"
-          head -10 Makefile | grep -E "VERSION|PATCHLEVEL|SUBLEVEL"
 
       - name: Apply Patch-specific Changes
         run: |
@@ -323,21 +416,15 @@ jobs:
           
           if [ "${{ inputs.patch_mode }}" != "standard" ]; then
             echo "Applying patch-specific changes for: ${{ steps.patch-params.outputs.patch_tag }}"
-            
-            # Check if we need to cherry-pick or merge specific patches
             PATCH_TAG="${{ steps.patch-params.outputs.patch_tag }}"
             
-            # Try to checkout the specific tag if it exists
             if git ls-remote --tags origin | grep -q "refs/tags/$PATCH_TAG"; then
               echo "Found tag $PATCH_TAG, attempting to merge changes..."
-              git fetch origin tag $PATCH_TAG --no-tags
-              
-              # Create a temporary branch and try to merge the changes
+              git fetch origin tag $PATCH_TAG --no-tags --depth=1
               git checkout -b temp-patch-branch
               git merge FETCH_HEAD --no-edit || {
-                echo "Merge conflicts detected, trying to resolve automatically..."
+                echo "Merge conflicts detected, continuing with available changes..."
                 git status
-                # You might want to add specific conflict resolution here
               }
             else
               echo "Tag $PATCH_TAG not found, continuing with current state..."
@@ -375,21 +462,16 @@ jobs:
           patch -p1 -F 3 < scope_min_manual_hooks_v1.4.patch
           
           echo "Removing exports..."
-          # Only try to modify BUILD.bazel if it exists (for newer Android versions)
           if [ -f "./BUILD.bazel" ]; then
             sed -i '/^[[:space:]]*"protected_exports_list"[[:space:]]*:[[:space:]]*"android\/abi_gki_protected_exports_aarch64",$/d' ./BUILD.bazel
-          else
-            echo "BUILD.bazel not found (normal for older Android versions like android12-5.10)"
           fi
-          
-          # Remove export files if they exist
           rm -f android/abi_gki_protected_exports_*
 
       - name: Configure Kernel
         run: |
           cd common
           echo "Adding KSU configuration to gki_defconfig..."
-          cat >> arch/arm64/configs/gki_defconfig << EOF
+          cat >> arch/arm64/configs/gki_defconfig << 'EOF'
           CONFIG_KSU=y
           CONFIG_KSU_KPROBES_HOOK=n
           CONFIG_KSU_SUSFS=y
@@ -421,34 +503,54 @@ jobs:
           CONFIG_TCP_CONG_HTCP=n
           EOF
 
-      - name: Build Kernel (Bazel)
+      - name: Monitor disk space before build
+        run: |
+          echo "=== Disk space before build ==="
+          df -h
+          echo "=== Memory usage ==="
+          free -h
+
+      - name: Build Kernel (Bazel - Memory Optimized)
         if: ${{ steps.build-params.outputs.use_bazel == 'true' }}
         run: |
           cd common
-          echo "Building kernel with Bazel..."
+          echo "Building kernel with Bazel (memory optimized)..."
           
-          # Modify version string without patch suffix
+          # Modify version string
           sed -i '$s|echo "\$res"|echo "\$res-TheFloresto"|' scripts/setlocalversion
           sed -i "/stable_scmversion_cmd/s/-maybe-dirty//g" ../build/kernel/kleaf/impl/stamp.bzl
           sed -i '2s/check_defconfig//' build.config.gki
           sed -i "s|build-timestamp = \$(or \$(KBUILD_BUILD_TIMESTAMP), \$(build-timestamp-auto))|build-timestamp = \"$(date -u +"%a %b %d %T UTC %Y")\"|" init/Makefile
           
           cd ..
-          tools/bazel build --disk_cache=~/.cache/bazel-disk --experimental_multi_threaded_digest --config=fast --lto=thin //common:kernel_aarch64_dist
+          
+          # Use very conservative resource limits
+          tools/bazel build \
+            --spawn_strategy=standalone \
+            --strategy=Javac=standalone \
+            --strategy=Closure=standalone \
+            --genrule_strategy=standalone \
+            --config=fast \
+            --config=stamp \
+            --lto=thin \
+            --jobs=1 \
+            --local_ram_resources=4096 \
+            --local_cpu_resources=1 \
+            --host_jvm_args=-Xmx1g \
+            --experimental_worker_max_retries=1 \
+            //common:kernel_aarch64_dist
           
           echo "Kernel build completed!"
-          ccache --show-stats
+          ccache --show-stats || true
 
-      - name: Build Kernel (Legacy Make)
+      - name: Build Kernel (Legacy Make - Memory Optimized)
         if: ${{ steps.build-params.outputs.use_bazel == 'false' }}
         run: |
           cd common
           echo "Building kernel with legacy make system..."
           
-          # Modify version string
           sed -i '$s|echo "\$res"|echo "\$res-TheFloresto"|' scripts/setlocalversion
           
-          # Set up build environment
           export ARCH=arm64
           export SUBARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
@@ -457,11 +559,8 @@ jobs:
           export KBUILD_BUILD_HOST="GitHub-Actions"
           export KBUILD_BUILD_TIMESTAMP="$(date -u +"%a %b %d %T UTC %Y")"
           
-          # Configure kernel
           make O=out gki_defconfig
-          
-          # Build kernel
-          make O=out -j$(nproc) Image.gz Image.lz4 Image
+          make O=out -j1 Image.gz Image.lz4 Image
           
           echo "Legacy kernel build completed!"
 
@@ -476,46 +575,53 @@ jobs:
           cp -v bazel-bin/common/kernel_aarch64/Image bootimgs/
           
           # Copy boot images if they exist
-          cp -v bazel-bin/common/kernel_aarch64_gki_artifacts/boot.img bootimgs/ || echo "boot.img not found"
-          cp -v bazel-bin/common/kernel_aarch64_gki_artifacts/boot-gz.img bootimgs/ || echo "boot-gz.img not found"
-          cp -v bazel-bin/common/kernel_aarch64_gki_artifacts/boot-lz4.img bootimgs/ || echo "boot-lz4.img not found"
+          cp -v bazel-bin/common/kernel_aarch64_gki_artifacts/boot*.img bootimgs/ 2>/dev/null || echo "Pre-built boot images not found"
+          
+          # Immediate cleanup
+          echo "Cleaning up build artifacts..."
+          rm -rf bazel-*
+          
+          echo "=== Disk space after build cleanup ==="
+          df -h
 
       - name: Prepare Artifacts (Legacy Make)
         if: ${{ steps.build-params.outputs.use_bazel == 'false' }}
         run: |
           mkdir -p bootimgs
           
-          # Copy kernel images from legacy build
           cp -v common/out/arch/arm64/boot/Image bootimgs/
           cp -v common/out/arch/arm64/boot/Image.gz bootimgs/
           
-          # Create LZ4 compressed image if not available
           if [ ! -f "common/out/arch/arm64/boot/Image.lz4" ]; then
             echo "Creating LZ4 compressed image..."
             lz4 -z common/out/arch/arm64/boot/Image bootimgs/Image.lz4
           else
             cp -v common/out/arch/arm64/boot/Image.lz4 bootimgs/
           fi
+          
+          # Immediate cleanup
+          rm -rf common/out
 
       - name: Create boot images if needed
         run: |
-          if [ ! -f "bootimgs/boot.img" ] || [ ! -f "bootimgs/boot-gz.img" ] || [ ! -f "bootimgs/boot-lz4.img" ]; then
-            echo "Creating boot images manually..."
-            cd bootimgs
-            
+          cd bootimgs
+          
+          if [ ! -f "boot.img" ]; then
             echo "Building boot.img (RAW)"
-            $MKBOOTIMG --header_version 4 --kernel Image --output boot.img
+            python3 $MKBOOTIMG --header_version 4 --kernel Image --output boot.img
             $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
-            
+          fi
+          
+          if [ ! -f "boot-gz.img" ]; then
             echo "Building boot.img (GZ)"
-            $MKBOOTIMG --header_version 4 --kernel Image.gz --output boot-gz.img
+            python3 $MKBOOTIMG --header_version 4 --kernel Image.gz --output boot-gz.img
             $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-gz.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
-            
+          fi
+          
+          if [ ! -f "boot-lz4.img" ]; then
             echo "Building boot.img (LZ4)"
-            $MKBOOTIMG --header_version 4 --kernel Image.lz4 --output boot-lz4.img
+            python3 $MKBOOTIMG --header_version 4 --kernel Image.lz4 --output boot-lz4.img
             $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-lz4.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
-            
-            cd ..
           fi
 
       - name: Create AnyKernel3 ZIPs
@@ -526,9 +632,9 @@ jobs:
           # Create LZ4 ZIP
           cd AnyKernel3-p8a
           cp ../bootimgs/Image.lz4 ./
-          ZIP_NAME_LZ4="AK3-GKI-${ANDROID_VER}-${KERNEL_VER}.${{ env.KERNEL_SUBLEVEL }}-KSUN-LZ4-${{ env.TIMESTAMP }}.zip"
-          zip -r "$ZIP_NAME_LZ4" ./*
-          mv "$ZIP_NAME_LZ4" ../
+          ZIP_NAME_LZ4="AK3-GKI-${ANDROID_VER}-${KERNEL_VER}.${{ env.KERNEL_SUBLEVEL }}-KSUN-${{ inputs.ksun_branch }}-${{ env.PATCH_SUFFIX }}-lz4-${{ env.TIMESTAMP }}.zip"
+          zip -r9 "$ZIP_NAME_LZ4" . -x .git\* README.md .gitignore
+          mv "$ZIP_NAME_LZ
           rm Image.lz4
           
           # Create GZ ZIP
