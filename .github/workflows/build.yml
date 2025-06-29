@@ -54,13 +54,16 @@ jobs:
           remove-cached-tools: false
           verbose: true
 
-      - name: Set CONFIG Environment Variable
+      - name: Set CONFIG and UTS_TIMESTAMP Environment Variables
         run: |
           # Set CONFIG dynamically based on inputs values
           CONFIG="${{ inputs.android_version }}-${{ inputs.kernel_version }}-${{ inputs.sub_level }}"
-          # Set CONFIG as an environment variable for future steps
           echo "CONFIG=$CONFIG" >> $GITHUB_ENV
           echo "CONFIG set to: $CONFIG"
+          # Set UTS_TIMESTAMP for UTS_VERSION and build-timestamp (e.g., Sun Jun 29 15:53:44 UTC 2025)
+          UTS_TIMESTAMP=$(date -u +"%a %b %d %T UTC %Y")
+          echo "UTS_TIMESTAMP=$UTS_TIMESTAMP" >> $GITHUB_ENV
+          echo "UTS_TIMESTAMP set to: $UTS_TIMESTAMP"
 
       - name: Install ccache
         run: sudo apt update && sudo apt install -y ccache
@@ -376,29 +379,36 @@ jobs:
             echo "CONFIG_KSU_SUSFS_SUS_SU=y" >> ./common/arch/arm64/configs/gki_defconfig
           fi
 
-      - name: Change Kernel Name
+      - name: Change Kernel Name and Timestamp
         run: |
           cd "$CONFIG"
 
-          # Изменение UTS_VERSION с динамической датой
-          perl -pi -e 's{UTS_VERSION="\$\(echo \$UTS_VERSION \$CONFIG_FLAGS \$TIMESTAMP \| cut -b -\$UTS_LEN\)"}{UTS_VERSION="#1 SMP PREEMPT $(date -u +\"%a %b %d %T UTC %Y\")"}' ./common/scripts/mkcompile_h
+          # Set UTS_VERSION with UTS_TIMESTAMP
+          perl -pi -e "s{UTS_VERSION=\"\\\$\(echo \\\$UTS_VERSION \\\$CONFIG_FLAGS \\\$TIMESTAMP \| cut -b -\\\$UTS_LEN\)\"}{UTS_VERSION=\"#1 SMP PREEMPT \${{ env.UTS_TIMESTAMP }}\"}" ./common/scripts/mkcompile_h
 
-          # Изменение setlocalversion для добавления пользовательского суффикса ядра
+          # Add custom suffix to setlocalversion
           sed -i '$s|echo "\$res"|echo "\$res-TheFloresto+"|' ./common/scripts/setlocalversion
 
-          # Условная логика для build/build.sh
+          # Conditional logic for build/build.sh
           if [ -f "build/build.sh" ]; then
             sed -i 's/-dirty//' ./common/scripts/setlocalversion
           else
-            sed -i "s/build-timestamp = \$(or \$(KBUILD_BUILD_TIMESTAMP), \$(build-timestamp-auto))/build-timestamp = \"$(date -u +\"%a %b %d %T UTC %Y\")\"/" ./common/init/Makefile
+            # Set build-timestamp
+            sed -i "s/build-timestamp = \$(or \$(KBUILD_BUILD_TIMESTAMP), \$(build-timestamp-auto))/build-timestamp = \"\${{ env.UTS_TIMESTAMP }}\"/" ./common/init/Makefile
             sed -i '/^[[:space:]]*"protected_exports_list"[[:space:]]*:[[:space:]]*"android\/abi_gki_protected_exports_aarch64",$/d' ./common/BUILD.bazel
             rm -rf ./common/android/abi_gki_protected_exports_*
             sed -i "/stable_scmversion_cmd/s/-maybe-dirty//g" ./build/kernel/kleaf/impl/stamp.bzl
             sed -E -i "/^CONFIG_LOCALVERSION=/ s/(.*)\"/\\1-TheFloresto+\"/" ./common/arch/arm64/configs/gki_defconfig
           fi
 
-          # Удаление check_defconfig
+          # Remove check_defconfig
           sed -i '2s/check_defconfig//' ./common/build.config.gki
+
+      - name: Clear Bazel Cache
+        run: |
+          cd "$CONFIG"
+          echo "Clearing Bazel cache..."
+          tools/bazel clean
 
       - name: Build
         run: |
@@ -412,6 +422,12 @@ jobs:
             tools/bazel build --disk_cache=/home/runner/.cache/bazel --config=fast --lto=thin //common:kernel_aarch64_dist || exit 1
           fi
           ccache --show-stats
+
+      - name: Verify Kernel Version
+        run: |
+          cd "$CONFIG"
+          echo "Verifying kernel version..."
+          strings ./bazel-bin/common/kernel_aarch64/Image | grep "Linux version" || echo "Failed to find kernel version string!"
 
       - name: Create Bootimgs Folder and Copy Images for Android 12/13
         if: ${{ inputs.android_version == 'android12' || inputs.android_version == 'android13' }}
