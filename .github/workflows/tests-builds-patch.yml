@@ -150,26 +150,32 @@ jobs:
             "android12-5.10")
               KERNEL_VERSION="5.10"
               MANIFEST_BRANCH="common-android12-5.10"
+              USE_BAZEL="false"
               ;;
             "android13-5.10")
               KERNEL_VERSION="5.10"
               MANIFEST_BRANCH="common-android13-5.10"
+              USE_BAZEL="true"
               ;;
             "android13-5.15")
               KERNEL_VERSION="5.15"
               MANIFEST_BRANCH="common-android13-5.15"
+              USE_BAZEL="true"
               ;;
             "android14-5.15")
               KERNEL_VERSION="5.15"
               MANIFEST_BRANCH="common-android14-5.15"
+              USE_BAZEL="true"
               ;;
             "android14-6.1")
               KERNEL_VERSION="6.1"
               MANIFEST_BRANCH="common-android14-6.1"
+              USE_BAZEL="true"
               ;;
             "android15-6.6")
               KERNEL_VERSION="6.6"
               MANIFEST_BRANCH="common-android15-6.6"
+              USE_BAZEL="true"
               ;;
             *)
               echo "Unsupported Android version: ${{ inputs.android_version }}"
@@ -179,6 +185,7 @@ jobs:
           
           echo "kernel_version=$KERNEL_VERSION" >> $GITHUB_OUTPUT
           echo "manifest_branch=$MANIFEST_BRANCH" >> $GITHUB_OUTPUT
+          echo "use_bazel=$USE_BAZEL" >> $GITHUB_OUTPUT
 
       - name: Determine Patch Parameters
         id: patch-params
@@ -368,7 +375,14 @@ jobs:
           patch -p1 -F 3 < scope_min_manual_hooks_v1.4.patch
           
           echo "Removing exports..."
-          sed -i '/^[[:space:]]*"protected_exports_list"[[:space:]]*:[[:space:]]*"android\/abi_gki_protected_exports_aarch64",$/d' ./BUILD.bazel
+          # Only try to modify BUILD.bazel if it exists (for newer Android versions)
+          if [ -f "./BUILD.bazel" ]; then
+            sed -i '/^[[:space:]]*"protected_exports_list"[[:space:]]*:[[:space:]]*"android\/abi_gki_protected_exports_aarch64",$/d' ./BUILD.bazel
+          else
+            echo "BUILD.bazel not found (normal for older Android versions like android12-5.10)"
+          fi
+          
+          # Remove export files if they exist
           rm -f android/abi_gki_protected_exports_*
 
       - name: Configure Kernel
@@ -407,10 +421,11 @@ jobs:
           CONFIG_TCP_CONG_HTCP=n
           EOF
 
-      - name: Build Kernel
+      - name: Build Kernel (Bazel)
+        if: ${{ steps.build-params.outputs.use_bazel == 'true' }}
         run: |
           cd common
-          echo "Building kernel..."
+          echo "Building kernel with Bazel..."
           
           # Modify version string without patch suffix
           sed -i '$s|echo "\$res"|echo "\$res-TheFloresto"|' scripts/setlocalversion
@@ -424,7 +439,34 @@ jobs:
           echo "Kernel build completed!"
           ccache --show-stats
 
-      - name: Prepare Artifacts
+      - name: Build Kernel (Legacy Make)
+        if: ${{ steps.build-params.outputs.use_bazel == 'false' }}
+        run: |
+          cd common
+          echo "Building kernel with legacy make system..."
+          
+          # Modify version string
+          sed -i '$s|echo "\$res"|echo "\$res-TheFloresto"|' scripts/setlocalversion
+          
+          # Set up build environment
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+          export KBUILD_BUILD_USER="TheFloresto"
+          export KBUILD_BUILD_HOST="GitHub-Actions"
+          export KBUILD_BUILD_TIMESTAMP="$(date -u +"%a %b %d %T UTC %Y")"
+          
+          # Configure kernel
+          make O=out gki_defconfig
+          
+          # Build kernel
+          make O=out -j$(nproc) Image.gz Image.lz4 Image
+          
+          echo "Legacy kernel build completed!"
+
+      - name: Prepare Artifacts (Bazel)
+        if: ${{ steps.build-params.outputs.use_bazel == 'true' }}
         run: |
           mkdir -p bootimgs
           
@@ -437,6 +479,23 @@ jobs:
           cp -v bazel-bin/common/kernel_aarch64_gki_artifacts/boot.img bootimgs/ || echo "boot.img not found"
           cp -v bazel-bin/common/kernel_aarch64_gki_artifacts/boot-gz.img bootimgs/ || echo "boot-gz.img not found"
           cp -v bazel-bin/common/kernel_aarch64_gki_artifacts/boot-lz4.img bootimgs/ || echo "boot-lz4.img not found"
+
+      - name: Prepare Artifacts (Legacy Make)
+        if: ${{ steps.build-params.outputs.use_bazel == 'false' }}
+        run: |
+          mkdir -p bootimgs
+          
+          # Copy kernel images from legacy build
+          cp -v common/out/arch/arm64/boot/Image bootimgs/
+          cp -v common/out/arch/arm64/boot/Image.gz bootimgs/
+          
+          # Create LZ4 compressed image if not available
+          if [ ! -f "common/out/arch/arm64/boot/Image.lz4" ]; then
+            echo "Creating LZ4 compressed image..."
+            lz4 -z common/out/arch/arm64/boot/Image bootimgs/Image.lz4
+          else
+            cp -v common/out/arch/arm64/boot/Image.lz4 bootimgs/
+          fi
 
       - name: Create boot images if needed
         run: |
@@ -545,37 +604,3 @@ jobs:
         run: |
           echo "Downloaded artifacts:"
           find ./artifacts -type f -name "*.zip" -o -name "*.img" | sort
-          ls -la ./artifacts/
-
-      - name: Generate and Create New Tag
-        run: |
-          BASE_TAG="v1.5.8-gki-r0"
-          
-          # Check if any tags exist at all
-          LATEST_TAG=$(gh api repos/$REPO_OWNER/$REPO_NAME/tags --jq '.[0].name' 2>/dev/null || echo "")
-          
-          if [[ -z "$LATEST_TAG" ]]; then
-            # No tags exist, use base tag
-            NEW_TAG="$BASE_TAG"
-            echo "No existing tags found. Creating first tag: $NEW_TAG"
-          elif [[ "$LATEST_TAG" == *"gki-r"* ]]; then
-            # Extract the revision number and increment it
-            REVISION=$(echo "$LATEST_TAG" | grep -o 'r[0-9]*' | sed 's/r//')
-            NEW_REVISION=$((REVISION + 1))
-            NEW_TAG=$(echo "$LATEST_TAG" | sed "s/r[0-9]*/r$NEW_REVISION/")
-            echo "Found existing GKI tag: $LATEST_TAG"
-            echo "Creating new tag: $NEW_TAG"
-          else
-            # Existing tags don't match our pattern, use base tag
-            NEW_TAG="$BASE_TAG"
-            echo "Existing tags don't match GKI pattern. Creating: $NEW_TAG"
-          fi
-          
-          echo "NEW_TAG=${NEW_TAG}" >> $GITHUB_ENV
-          
-          # Check if tag already exists
-          if git ls-remote --tags origin | grep -q "refs/tags/$NEW_TAG"; then
-            echo "Tag $NEW_TAG already exists, skipping tag creation"
-          else
-            echo "Creating new tag: $NEW_TAG"
-            git tag $NEW_TAG
