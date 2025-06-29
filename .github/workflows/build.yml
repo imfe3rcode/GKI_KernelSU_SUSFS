@@ -53,15 +53,13 @@ jobs:
           remove-swapfile: true
           remove-cached-tools: false
           verbose: true
-       
+
       - name: Set CONFIG Environment Variable
         run: |
           # Set CONFIG dynamically based on inputs values
           CONFIG="${{ inputs.android_version }}-${{ inputs.kernel_version }}-${{ inputs.sub_level }}"
-
           # Set CONFIG as an environment variable for future steps
           echo "CONFIG=$CONFIG" >> $GITHUB_ENV
-
           echo "CONFIG set to: $CONFIG"
 
       - name: Install ccache
@@ -143,7 +141,7 @@ jobs:
 
       - name: Determine the branch for KernelSU
         run: |
-          case "${{ inputs.kernelsu_branch }}" in
+          case "${{ inputs.kernelsu_variant }}" in
             "Stable")
               echo "BRANCH=-" >> $GITHUB_ENV
               ;;
@@ -189,7 +187,7 @@ jobs:
               curl -LSs "https://raw.githubusercontent.com/5ec1cff/KernelSU/main/kernel/setup.sh" | bash ${{ env.BRANCH }}
               ;;
           esac
-          
+
       - name: Apply SUSFS Patches for KernelSU Variants
         run: |
           echo "Changing to configuration directory: $CONFIG..."
@@ -230,8 +228,8 @@ jobs:
             "NEXT")
               echo "Applying SUSFS patches for KernelSU Next..."
               cd ./KernelSU-Next
-             cp -v ../../kernel_patches/next/0001-kernel-implement-susfs-v1.5.8-KernelSU-Next-v1.0.8.patch ./
-             patch -p1 --fuzz=3 < 0001-kernel-implement-susfs-v1.5.8-KernelSU-Next-v1.0.8.patch
+              cp -v ../../kernel_patches/next/0001-kernel-implement-susfs-v1.5.8-KernelSU-Next-v1.0.8.patch ./
+              patch -p1 --fuzz=3 < 0001-kernel-implement-susfs-v1.5.8-KernelSU-Next-v1.0.8.patch
               ;;
             "MKSU")
               echo "Applying SUSFS patches for MKSU..."
@@ -268,7 +266,7 @@ jobs:
           cd ./kernel
           KSU_VERSION=$(expr $(/usr/bin/git rev-list --count HEAD) "+" $BASE_VERSION)
           echo "KSUVER=$KSU_VERSION" >> $GITHUB_ENV
-          
+
       - name: Apply Hooks Patches
         run: |
           echo "Changing to configuration directory: $CONFIG..."
@@ -378,11 +376,11 @@ jobs:
             echo "CONFIG_KSU_SUSFS_SUS_SU=y" >> ./common/arch/arm64/configs/gki_defconfig
           fi
 
-       - name: Change Kernel Name
-         run: |
+      - name: Change Kernel Name
+        run: |
           cd "$CONFIG"
 
-           # modify UTS_VERSION
+          # Изменение UTS_VERSION с динамической датой
           perl -pi -e 's{UTS_VERSION="\$\(echo \$UTS_VERSION \$CONFIG_FLAGS \$TIMESTAMP \| cut -b -\$UTS_LEN\)"}{UTS_VERSION="#1 SMP PREEMPT $(date -u +\"%a %b %d %T UTC %Y\")"}' ./common/scripts/mkcompile_h
 
           # Изменение setlocalversion для добавления пользовательского суффикса ядра
@@ -390,20 +388,20 @@ jobs:
 
           # Условная логика для build/build.sh
           if [ -f "build/build.sh" ]; then
-          sed -i 's/-dirty//' ./common/scripts/setlocalversion
+            sed -i 's/-dirty//' ./common/scripts/setlocalversion
           else
-          sed -i "s/build-timestamp = \$(or \$(KBUILD_BUILD_TIMESTAMP), \$(build-timestamp-auto))/build-timestamp = \"$(date -u +\"%a %b %d %T UTC %Y\")\"/" ./common/init/Makefile
-          sed -i '/^[[:space:]]*"protected_exports_list"[[:space:]]*:[[:space:]]*"android\/abi_gki_protected_exports_aarch64",$/d' ./common/BUILD.bazel
-          rm -rf ./common/android/abi_gki_protected_exports_*
-          sed -i "/stable_scmversion_cmd/s/-maybe-dirty//g" ./build/kernel/kleaf/impl/stamp.bzl
-          sed -E -i "/^CONFIG_LOCALVERSION=/ s/(.*)\"/\\1-TheFloresto+\"/" ./common/arch/arm64/configs/gki_defconfig
-          fi
-          # Удаление check_defconfig
-          sed -i '2s/check_defconfig//' ./common/build.config.gki
+            sed -i "s/build-timestamp = \$(or \$(KBUILD_BUILD_TIMESTAMP), \$(build-timestamp-auto))/build-timestamp = \"$(date -u +\"%a %b %d %T UTC %Y\")\"/" ./common/init/Makefile
+            sed -i '/^[[:space:]]*"protected_exports_list"[[:space:]]*:[[:space:]]*"android\/abi_gki_protected_exports_aarch64",$/d' ./common/BUILD.bazel
+            rm -rf ./common/android/abi_gki_protected_exports_*
+            sed -i "/stable_scmversion_cmd/s/-maybe-dirty//g" ./build/kernel/kleaf/impl/stamp.bzl
+            sed -E -i "/^CONFIG_LOCALVERSION=/ s/(.*)\"/\\1-TheFloresto+\"/" ./common/arch/arm64/configs/gki_defconfig
           fi
 
+          # Удаление check_defconfig
+          sed -i '2s/check_defconfig//' ./common/build.config.gki
+
       - name: Build
-        run : |
+        run: |
           set -e
           set -x
           cd "$CONFIG"
@@ -419,13 +417,11 @@ jobs:
         if: ${{ inputs.android_version == 'android12' || inputs.android_version == 'android13' }}
         run: |
           mkdir bootimgs
-
           echo "Creating bootimgs folder and copying images..."
           cp ./$CONFIG/out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist/Image ./bootimgs
           cp ./$CONFIG/out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist/Image.lz4 ./bootimgs
           cp ./$CONFIG/out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist/Image ./
           cp ./$CONFIG/out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist/Image.lz4 ./
-
           # Create gzip of the Image file
           gzip -n -k -f -9 ./Image > ./Image.gz
 
@@ -433,13 +429,11 @@ jobs:
         if: ${{ inputs.android_version == 'android14' || inputs.android_version == 'android15' }}
         run: |
           mkdir bootimgs
-
           echo "Creating bootimgs folder and copying images..."
           cp ./$CONFIG/bazel-bin/common/kernel_aarch64/Image ./bootimgs
           cp ./$CONFIG/bazel-bin/common/kernel_aarch64/Image.lz4 ./bootimgs
           cp ./$CONFIG/bazel-bin/common/kernel_aarch64/Image ./
           cp ./$CONFIG/bazel-bin/common/kernel_aarch64/Image.lz4 ./
-
           # Create gzip of the Image file
           gzip -n -k -f -9 ./Image > ./Image.gz
 
@@ -521,7 +515,6 @@ jobs:
         if: ${{ inputs.android_version == 'android13' || inputs.android_version == 'android14' || inputs.android_version == 'android15' }}
         run: |
           cd bootimgs
-
           # Create gzip of the Image file
           gzip -n -k -f -9 ./Image > ./Image.gz
           
