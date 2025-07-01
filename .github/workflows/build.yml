@@ -41,15 +41,6 @@ jobs:
       CCACHE_HARDLINK: "true"
       
     steps:
-      - name: SWAP
-        run: |
-          sudo swapoff -a
-          sudo fallocate -l 16G /swapfile
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
-          free -h
-      
       - name: Maximize Build Space
         uses: AdityaGarg8/remove-unwanted-software@v5
         with:
@@ -62,6 +53,15 @@ jobs:
           remove-swapfile: false
           remove-cached-tools: false
           verbose: true
+          
+      - name: SWAP
+        run: |
+          sudo swapoff -a
+          sudo fallocate -l 16G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          free -h
 
       - name: Set CONFIG and UTS_TIMESTAMP Environment Variables
         run: |
