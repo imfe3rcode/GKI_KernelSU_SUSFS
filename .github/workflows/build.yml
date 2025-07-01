@@ -69,11 +69,11 @@ jobs:
           CONFIG="${{ inputs.android_version }}-${{ inputs.kernel_version }}-${{ inputs.sub_level }}"
           echo "CONFIG=$CONFIG" >> $GITHUB_ENV
           echo "CONFIG set to: $CONFIG"
-          # Set UTS_TIMESTAMP for UTS_VERSION and build-timestamp (e.g., Sun Jun 29 15:53:44 UTC 2025)
+          # Set UTS_TIMESTAMP for UTS_VERSION and build-timestamp (e.g., Wed Jul 2 18:24:00 UTC 2025)
           UTS_TIMESTAMP=$(date -u +"%a %b %d %T UTC %Y")
           echo "UTS_TIMESTAMP=$UTS_TIMESTAMP" >> $GITHUB_ENV
           echo "UTS_TIMESTAMP set to: $UTS_TIMESTAMP"
-          # Set BUILD_DATETIME for file naming (e.g., 01.07.25-18:09)
+          # Set BUILD_DATETIME for file naming (e.g., 01.07.25-18:24)
           BUILD_DATETIME=$(date -u +"%d.%m.%y-%H:%M")
           echo "BUILD_DATETIME=$BUILD_DATETIME" >> $GITHUB_ENV
           echo "BUILD_DATETIME set to: $BUILD_DATETIME"
@@ -427,7 +427,7 @@ jobs:
           if [ -f "build/build.sh" ]; then
             LTO=full BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh CC="/usr/bin/ccache clang" || exit 1
           else
-            tools/bazel build --sandbox_writable_path=$HOME/.ccache --disk_cache=~/.cache/bazel --experimental_multi_threaded_digest --config=fast --lto=full //common:kernel_aarch64_dist || exit 1
+            tools/bazel build --sandbox_writable_path=$HOME/.ccache --disk_cache=~/.cache/bazel --config=fast --lto=full //common:kernel_aarch64_dist || exit 1
           fi
           ccache --show-stats
 
