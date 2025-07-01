@@ -73,6 +73,10 @@ jobs:
           UTS_TIMESTAMP=$(date -u +"%a %b %d %T UTC %Y")
           echo "UTS_TIMESTAMP=$UTS_TIMESTAMP" >> $GITHUB_ENV
           echo "UTS_TIMESTAMP set to: $UTS_TIMESTAMP"
+          # Set BUILD_DATETIME for file naming (e.g., 01.07.25-17:21)
+          BUILD_DATETIME=$(date -u +"%d.%m.%y-%H:%M")
+          echo "BUILD_DATETIME=$BUILD_DATETIME" >> $GITHUB_ENV
+          echo "BUILD_DATETIME set to: $BUILD_DATETIME"
 
       - name: Install ccache
         run: sudo apt update && sudo apt install -y ccache
@@ -461,20 +465,29 @@ jobs:
           echo "Creating zip files for all formats..."
           cd ./AnyKernel3-p8a
           
+          # Create short version for Android version
+          case "${{ inputs.android_version }}" in
+            "android12") ANDROID_SHORT="a12" ;;
+            "android13") ANDROID_SHORT="a13" ;;
+            "android14") ANDROID_SHORT="a14" ;;
+            "android15") ANDROID_SHORT="a15" ;;
+            *) ANDROID_SHORT="${{ inputs.android_version }}" ;;
+          esac
+          
           # Create and upload zip for each format
-          ZIP_NAME="${{ inputs.kernelsu_variant }}-$KSUVER-${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.os_patch_level }}-AnyKernel3.zip"
+          ZIP_NAME="${{ inputs.kernelsu_variant }}-${{ env.BUILD_DATETIME }}-$ANDROID_SHORT-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-AK3-RAW.zip"
           echo "Creating zip file: $ZIP_NAME..."
           mv ../Image ./Image
           zip -r "../$ZIP_NAME" ./*
           rm ./Image
           
-          ZIP_NAME="${{ inputs.kernelsu_variant }}-$KSUVER-${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.os_patch_level }}-AnyKernel3-lz4.zip"
+          ZIP_NAME="${{ inputs.kernelsu_variant }}-${{ env.BUILD_DATETIME }}-$ANDROID_SHORT-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-AK3-lz4.zip"
           echo "Creating zip file: $ZIP_NAME..."
           mv ../Image.lz4 ./Image.lz4
           zip -r "../$ZIP_NAME" ./*
           rm ./Image.lz4
           
-          ZIP_NAME="${{ inputs.kernelsu_variant }}-$KSUVER-${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.os_patch_level }}-AnyKernel3-gz.zip"
+          ZIP_NAME="${{ inputs.kernelsu_variant }}-${{ env.BUILD_DATETIME }}-$ANDROID_SHORT-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-AK3-gz.zip"
           echo "Creating zip file: $ZIP_NAME..."
           mv ../Image.gz ./Image.gz
           zip -r "../$ZIP_NAME" ./*
@@ -485,6 +498,15 @@ jobs:
         run: |
           echo "Changing to configuration directory: $CONFIG..."
           cd bootimgs
+          
+          # Create short version for Android version
+          case "${{ inputs.android_version }}" in
+            "android12") ANDROID_SHORT="a12" ;;
+            "android13") ANDROID_SHORT="a13" ;;
+            "android14") ANDROID_SHORT="a14" ;;
+            "android15") ANDROID_SHORT="a15" ;;
+            *) ANDROID_SHORT="${{ inputs.android_version }}" ;;
+          esac
           
           GKI_URL=https://dl.google.com/android/gki/gki-certified-boot-android12-5.10-"${{ inputs.os_patch_level }}"_"${{ inputs.revision }}".zip
           FALLBACK_URL=https://dl.google.com/android/gki/gki-certified-boot-android12-5.10-2023-01_r1.zip
@@ -518,17 +540,17 @@ jobs:
           echo "Building boot.img"
           $MKBOOTIMG --header_version 4 --kernel Image --output boot.img --ramdisk out/ramdisk --os_version 12.0.0 --os_patch_level "${{ inputs.os_patch_level }}"
           $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
-          cp ./boot.img ../${{ inputs.kernelsu_variant }}-$KSUVER-${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.os_patch_level }}-boot.img
+          cp ./boot.img ../${{ inputs.kernelsu_variant }}-${{ env.BUILD_DATETIME }}-$ANDROID_SHORT-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-boot-RAW.img
           
           echo "Building boot-gz.img"
           $MKBOOTIMG --header_version 4 --kernel Image.gz --output boot-gz.img --ramdisk out/ramdisk --os_version 12.0.0 --os_patch_level "${{ inputs.os_patch_level }}"
           $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-gz.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
-          cp ./boot-gz.img ../${{ inputs.kernelsu_variant }}-$KSUVER-${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.os_patch_level }}-boot-gz.img
+          cp ./boot-gz.img ../${{ inputs.kernelsu_variant }}-${{ env.BUILD_DATETIME }}-$ANDROID_SHORT-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-boot-gz.img
           
           echo "Building boot-lz4.img"
           $MKBOOTIMG --header_version 4 --kernel Image.lz4 --output boot-lz4.img --ramdisk out/ramdisk --os_version 12.0.0 --os_patch_level "${{ inputs.os_patch_level }}"
           $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-lz4.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
-          cp ./boot-lz4.img ../${{ inputs.kernelsu_variant }}-$KSUVER-${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.os_patch_level }}-boot-lz4.img
+          cp ./boot-lz4.img ../${{ inputs.kernelsu_variant }}-${{ env.BUILD_DATETIME }}-$ANDROID_SHORT-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-boot-lz4.img
 
       - name: Android 13/14/15 boot image build script
         if: ${{ inputs.android_version == 'android13' || inputs.android_version == 'android14' || inputs.android_version == 'android15' }}
@@ -537,20 +559,29 @@ jobs:
           # Create gzip of the Image file
           gzip -n -k -f -9 ./Image > ./Image.gz
           
+          # Create short version for Android version
+          case "${{ inputs.android_version }}" in
+            "android12") ANDROID_SHORT="a12" ;;
+            "android13") ANDROID_SHORT="a13" ;;
+            "android14") ANDROID_SHORT="a14" ;;
+            "android15") ANDROID_SHORT="a15" ;;
+            *) ANDROID_SHORT="${{ inputs.android_version }}" ;;
+          esac
+          
           echo "Building boot.img"
           $MKBOOTIMG --header_version 4 --kernel Image --output boot.img
           $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
-          cp ./boot.img ../${{ inputs.kernelsu_variant }}-$KSUVER-${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.os_patch_level }}-boot.img
+          cp ./boot.img ../${{ inputs.kernelsu_variant }}-${{ env.BUILD_DATETIME }}-$ANDROID_SHORT-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-boot-RAW.img
           
           echo "Building boot-gz.img"
           $MKBOOTIMG --header_version 4 --kernel Image.gz --output boot-gz.img
           $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-gz.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
-          cp ./boot-gz.img ../${{ inputs.kernelsu_variant }}-$KSUVER-${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.os_patch_level }}-boot-gz.img
+          cp ./boot-gz.img ../${{ inputs.kernelsu_variant }}-${{ env.BUILD_DATETIME }}-$ANDROID_SHORT-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-boot-gz.img
           
           echo "Building boot-lz4.img"
           $MKBOOTIMG --header_version 4 --kernel Image.lz4 --output boot-lz4.img
           $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-lz4.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
-          cp ./boot-lz4.img ../${{ inputs.kernelsu_variant }}-$KSUVER-${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.os_patch_level }}-boot-lz4.img
+          cp ./boot-lz4.img ../${{ inputs.kernelsu_variant }}-${{ env.BUILD_DATETIME }}-$ANDROID_SHORT-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-boot-lz4.img
           
       - name: Compress all img files with gzip
         run: |
