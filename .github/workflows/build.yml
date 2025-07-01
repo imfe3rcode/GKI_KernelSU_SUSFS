@@ -73,8 +73,8 @@ jobs:
           UTS_TIMESTAMP=$(date -u +"%a %b %d %T UTC %Y")
           echo "UTS_TIMESTAMP=$UTS_TIMESTAMP" >> $GITHUB_ENV
           echo "UTS_TIMESTAMP set to: $UTS_TIMESTAMP"
-          # Set BUILD_DATETIME for file naming (e.g., 01.07.25-18:24)
-          BUILD_DATETIME=$(date -u +"%d.%m.%y-%H:%M")
+          # Set BUILD_DATETIME for file naming (e.g., 01.07.25-18.24)
+          BUILD_DATETIME=$(date -u +"%d.%m.%y-%H.%M")
           echo "BUILD_DATETIME=$BUILD_DATETIME" >> $GITHUB_ENV
           echo "BUILD_DATETIME set to: $BUILD_DATETIME"
 
