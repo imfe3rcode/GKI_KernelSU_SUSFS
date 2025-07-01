@@ -41,7 +41,7 @@ jobs:
       CCACHE_HARDLINK: "true"
       
     steps:
-          - name: SWAP
+      - name: SWAP
         run: |
           sudo swapoff -a
           sudo fallocate -l 16G /swapfile
@@ -49,7 +49,7 @@ jobs:
           sudo mkswap /swapfile
           sudo swapon /swapfile
           free -h
-          
+      
       - name: Maximize Build Space
         uses: AdityaGarg8/remove-unwanted-software@v5
         with:
