@@ -41,15 +41,6 @@ jobs:
       CCACHE_HARDLINK: "true"
       
     steps:
-      - name: SWAP
-        run: |
-          sudo swapoff -a
-          sudo fallocate -l 16G /swapfile
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
-          free -h
-      
       - name: Maximize Build Space
         uses: AdityaGarg8/remove-unwanted-software@v5
         with:
@@ -63,6 +54,15 @@ jobs:
           remove-cached-tools: false
           verbose: true
 
+      - name: SWAP
+        run: |
+          sudo swapoff -a
+          sudo fallocate -l 20G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          free -h
+
       - name: Set CONFIG and UTS_TIMESTAMP Environment Variables
         run: |
           # Set CONFIG dynamically based on inputs values
@@ -73,7 +73,7 @@ jobs:
           UTS_TIMESTAMP=$(date -u +"%a %b %d %T UTC %Y")
           echo "UTS_TIMESTAMP=$UTS_TIMESTAMP" >> $GITHUB_ENV
           echo "UTS_TIMESTAMP set to: $UTS_TIMESTAMP"
-          # Set BUILD_DATETIME for file naming (e.g., 01.07.25-17:21)
+          # Set BUILD_DATETIME for file naming (e.g., 01.07.25-17:55)
           BUILD_DATETIME=$(date -u +"%d.%m.%y-%H:%M")
           echo "BUILD_DATETIME=$BUILD_DATETIME" >> $GITHUB_ENV
           echo "BUILD_DATETIME set to: $BUILD_DATETIME"
@@ -426,7 +426,7 @@ jobs:
           if [ -f "build/build.sh" ]; then
             LTO=full BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh CC="/usr/bin/ccache clang" || exit 1
           else
-            tools/bazel build --disk_cache=/home/runner/.cache/bazel --config=fast --lto=full //common:kernel_aarch64_dist || exit 1
+            tools/bazel build --sandbox_writable_path=$HOME/.ccache --disk_cache=~/.cache/bazel-disk --experimental_multi_threaded_digest --config=fast --lto=full //common:kernel_aarch64_dist || exit 1
           fi
           ccache --show-stats
 
