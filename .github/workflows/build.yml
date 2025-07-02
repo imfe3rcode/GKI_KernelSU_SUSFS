@@ -474,7 +474,7 @@ jobs:
       - name: Create ZIP Files for Different Formats
         run: |
           echo "Creating zip files for all formats..."
-          cd ./AnyKernel3
+          cd ./AnyKernel3-p8a
           
           # Create and upload zip for each format
           ZIP_NAME="${{ inputs.kernelsu_variant }}-$KSUVER-${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.os_patch_level }}-AnyKernel3.zip"
