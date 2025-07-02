@@ -378,25 +378,30 @@ jobs:
             echo "CONFIG_KSU_SUSFS_SUS_SU=y" >> ./common/arch/arm64/configs/gki_defconfig
           fi
 
-      - name: Change Kernel Name
+      - name: Change Kernel Name and Timestamp
         run: |
           cd "$CONFIG"
 
-          # modify UTS_VERSION
-          perl -pi -e 's{UTS_VERSION="\$\(echo \$UTS_VERSION \$CONFIG_FLAGS \$TIMESTAMP \| cut -b -\$UTS_LEN\)"}{UTS_VERSION=\"#1 SMP PREEMPT \${{ env.UTS_TIMESTAMP }}\"}" ./common/scripts/mkcompile_h
-          
+          # Set UTS_VERSION with UTS_TIMESTAMP
+          perl -pi -e "s{UTS_VERSION=\"\\\$\(echo \\\$UTS_VERSION \\\$CONFIG_FLAGS \\\$TIMESTAMP \| cut -b -\\\$UTS_LEN\)\"}{UTS_VERSION=\"#1 SMP PREEMPT \${{ env.UTS_TIMESTAMP }}\"}" ./common/scripts/mkcompile_h
+
+          # Add custom suffix to setlocalversion
           sed -i '$s|echo "\$res"|echo "\$res-TheFloresto+"|' ./common/scripts/setlocalversion
+
+          # Conditional logic for build/build.sh
           if [ -f "build/build.sh" ]; then
             sed -i 's/-dirty//' ./common/scripts/setlocalversion
           else
-            sed -i 's/build-timestamp = $(or $(KBUILD_BUILD_TIMESTAMP), $(build-timestamp-auto))/build-timestamp = \"\${{ env.UTS_TIMESTAMP }}\"/" ./common/init/Makefile
+            # Set build-timestamp
+            sed -i "s/build-timestamp = \$(or \$(KBUILD_BUILD_TIMESTAMP), \$(build-timestamp-auto))/build-timestamp = \"\${{ env.UTS_TIMESTAMP }}\"/" ./common/init/Makefile
             sed -i '/^[[:space:]]*"protected_exports_list"[[:space:]]*:[[:space:]]*"android\/abi_gki_protected_exports_aarch64",$/d' ./common/BUILD.bazel
             rm -rf ./common/android/abi_gki_protected_exports_*
             sed -i "/stable_scmversion_cmd/s/-maybe-dirty//g" ./build/kernel/kleaf/impl/stamp.bzl
             sed -E -i "/^CONFIG_LOCALVERSION=/ s/(.*)\"/\\1-TheFloresto+\"/" ./common/arch/arm64/configs/gki_defconfig
           fi
-          
-          sed -i '2s/check_defconfig//' ./common/build.config.gki          
+
+          # Remove check_defconfig
+          sed -i '2s/check_defconfig//' ./common/build.config.gki 
 
       - name: Build
         run : |
