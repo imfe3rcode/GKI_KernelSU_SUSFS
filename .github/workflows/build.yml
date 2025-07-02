@@ -476,13 +476,13 @@ jobs:
           zip -r "../$ZIP_NAME" ./*
           rm ./Image
           
-          ZIP_NAME="AK3-$ANDROID_SHORT-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.kernelsu_variant }}-lz4-${{ env.BUILD_DATETIME }}.zip"
+          ZIP_NAME="AK3-$ANDROID_SHORT-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.kernelsu_variant }}-LZ4-${{ env.BUILD_DATETIME }}.zip"
           echo "Creating zip file: $ZIP_NAME..."
           mv ../Image.lz4 ./Image.lz4
           zip -r "../$ZIP_NAME" ./*
           rm ./Image.lz4
           
-          ZIP_NAME="AK3-$ANDROID_SHORT-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.kernelsu_variant }}-gz-${{ env.BUILD_DATETIME }}.zip"
+          ZIP_NAME="AK3-$ANDROID_SHORT-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.kernelsu_variant }}-GZ-${{ env.BUILD_DATETIME }}.zip"
           echo "Creating zip file: $ZIP_NAME..."
           mv ../Image.gz ./Image.gz
           zip -r "../$ZIP_NAME" ./*
