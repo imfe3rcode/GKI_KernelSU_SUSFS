@@ -227,7 +227,7 @@ jobs:
           Wild Current Kernel Tag: ${{ env.NEW_TAG }}
       
           Features:
-          -> Wild KSU Kernels & Others
+          -> FLORES KSU Kernels & Others
           -> Multi Manager Support for Wild Kernels & Next Kernels (Not Recommended)
           -> SUSFS ඞ v1.5.8
           -> Scope-Minimized Manual hooks v1.4
