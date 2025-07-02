@@ -196,6 +196,7 @@ jobs:
               curl -LSs "https://raw.githubusercontent.com/5ec1cff/KernelSU/main/kernel/setup.sh" | bash ${{ env.BRANCH }}
               ;;
           esac
+
           
 - name: Getting KernelSU Version
   run: |
@@ -224,6 +225,16 @@ jobs:
         exit 1
         ;;
     esac
+    
+    if [ -d "$KSU_DIR/kernel" ]; then
+      cd "$KSU_DIR/kernel"
+      KSU_VERSION=$(expr $(/usr/bin/git rev-list --count HEAD) "+" $BASE_VERSION)
+    else
+      echo "Error: Kernel directory for $KSU_DIR not found"
+      exit 1
+    fi
+    echo "KernelSU version set to: $KSU_VERSION"
+    echo "KSUVER=$KSU_VERSION" >> $GITHUB_ENVesac
     
     if [ -d "$KSU_DIR/kernel" ]; then
       cd "$KSU_DIR/kernel"
