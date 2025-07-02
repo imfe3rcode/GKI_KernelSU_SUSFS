@@ -198,7 +198,7 @@ jobs:
           esac
 
 -name: Getting KernelSU Version
-  run: |
+ run: |
     echo "Changing to configuration directory: $CONFIG..."
     cd "$CONFIG"
     
