@@ -591,4 +591,4 @@ jobs:
           path: |
             *.zip
             *.img.gz
-            *Image
+            *Image*
