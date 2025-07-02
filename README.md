@@ -1,4 +1,4 @@
-# Wild Kernels for Android
+# FLORES Kernels for Android
 
 ## Your warranty is no longer valid!
 
