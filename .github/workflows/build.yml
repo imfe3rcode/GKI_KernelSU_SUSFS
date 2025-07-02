@@ -2,7 +2,7 @@ name: Build Script
 permissions:
   contents: write
   actions: write 
-
+  
 on:
   workflow_call:
     inputs:
@@ -24,10 +24,13 @@ on:
       kernelsu_branch:
         required: true
         type: string
+      kernelsu_branch_other:
+        required: false
+        type: string
       revision:
         required: false
         type: string
-
+        
 jobs:
   build-gki:
     runs-on: ubuntu-latest
