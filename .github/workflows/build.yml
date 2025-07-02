@@ -201,7 +201,6 @@ jobs:
   run: |
     echo "Changing to configuration directory: $CONFIG..."
     cd "$CONFIG"
-    
     case "${{ inputs.kernelsu_variant }}" in
       "WILD")
         KSU_DIR="Wild_KSU"
@@ -224,21 +223,15 @@ jobs:
         exit 1
         ;;
     esac
-    
     if [ -d "$KSU_DIR/kernel" ]; then
       cd "$KSU_DIR/kernel"
-      KSU_VERSION=$(expr $(/usr/bin/git rev-list --count HEAD) "+" $BASE_VERSION)
+      KSU_VERSION=$(( $(/usr/bin/git rev-list --count HEAD) + $BASE_VERSION ))
     else
       echo "Error: Kernel directory for $KSU_DIR not found"
       exit 1
     fi
     echo "KernelSU version set to: $KSU_VERSION"
     echo "KSUVER=$KSU_VERSION" >> $GITHUB_ENV
-
-      - name: Apply SUSFS Patches for KernelSU Variants
-        run: |
-          echo "Changing to configuration directory: $CONFIG..."
-          cd "$CONFIG"
           
           echo "Applying SUSFS patches..."
           
