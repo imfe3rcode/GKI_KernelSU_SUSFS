@@ -73,8 +73,11 @@ jobs:
           UTS_TIMESTAMP=$(date -u +"%a %b %d %T UTC %Y")
           echo "UTS_TIMESTAMP=$UTS_TIMESTAMP" >> $GITHUB_ENV
           echo "UTS_TIMESTAMP set to: $UTS_TIMESTAMP"
-         # BUILD_DATETIME will be set after getting KSU version
-         echo "BUILD_DATETIME will be set after getting KSU version"
+          # Set BUILD_DATETIME for file naming (e.g., 01.07.25-18.24)
+          BUILD_DATETIME=$(date -u +"%d.%m.%y-%H.%M")
+          echo "BUILD_DATETIME=$BUILD_DATETIME" >> $GITHUB_ENV
+          echo "BUILD_DATETIME set to: $BUILD_DATETIME"
+
       - name: Install ccache
         run: sudo apt update && sudo apt install -y ccache
 
@@ -272,31 +275,28 @@ jobs:
           echo "Changing to configuration directory: $CONFIG..."
           cd "$CONFIG"
           
-          BASE_VERSION=10200
-          KSU_DIR=""
-          
           case "${{ inputs.kernelsu_variant }}" in
             "WILD")
-              KSU_DIR="./Wild_KSU"
+              echo "Applying SUSFS patches for Official KernelSU..."
+              cd ./Wild_KSU
+              BASE_VERSION=10200
               ;;
             "KSU")
-              KSU_DIR="./KernelSU"
+              echo "Applying SUSFS patches for Official KernelSU..."
+              cd ./KernelSU
+              BASE_VERSION=10200
               ;;
             "NEXT")
-              KSU_DIR="./KernelSU-Next"
+              cd ./KernelSU-Next
+              BASE_VERSION=10200
               ;;
             "MKSU")
-              KSU_DIR="./KernelSU"
               ;;
           esac
           
-          if [ -d "$KSU_DIR/kernel" ]; then
-            cd "$KSU_DIR/kernel"
-            KSU_VERSION=$(expr $(/usr/bin/git rev-list --count HEAD) "+" $BASE_VERSION)
-            echo "KSUVER=$KSU_VERSION" >> $GITHUB_ENV
-         else
-           echo "KSUVER=$BASE_VERSION" >> $GITHUB_ENV
-         fi
+          cd ./kernel
+          KSU_VERSION=$(expr $(/usr/bin/git rev-list --count HEAD) "+" $BASE_VERSION)
+          echo "KSUVER=$KSU_VERSION" >> $GITHUB_ENV
 
       - name: Apply Hooks Patches
         run: |
