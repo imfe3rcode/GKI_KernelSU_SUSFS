@@ -540,12 +540,12 @@ jobs:
           echo "Building boot-gz.img"
           $MKBOOTIMG --header_version 4 --kernel Image.gz --output boot-gz.img --ramdisk out/ramdisk --os_version 12.0.0 --os_patch_level "${{ inputs.os_patch_level }}"
           $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-gz.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
-          cp ./boot-gz.img ../$ANDROID_SHORT-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.kernelsu_variant }}-gz-${{ env.BUILD_DATETIME }}.img
+          cp ./boot-gz.img ../$ANDROID_SHORT-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.kernelsu_variant }}-GZ-${{ env.BUILD_DATETIME }}.img
           
           echo "Building boot-lz4.img"
           $MKBOOTIMG --header_version 4 --kernel Image.lz4 --output boot-lz4.img --ramdisk out/ramdisk --os_version 12.0.0 --os_patch_level "${{ inputs.os_patch_level }}"
           $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-lz4.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
-          cp ./boot-lz4.img ../$ANDROID_SHORT-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.kernelsu_variant }}-lz4-${{ env.BUILD_DATETIME }}.img
+          cp ./boot-lz4.img ../$ANDROID_SHORT-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.kernelsu_variant }}-LZ4-${{ env.BUILD_DATETIME }}.img
 
       - name: Android 13/14/15 boot image build script
         if: ${{ inputs.android_version == 'android13' || inputs.android_version == 'android14' || inputs.android_version == 'android15' }}
@@ -571,12 +571,18 @@ jobs:
           echo "Building boot-gz.img"
           $MKBOOTIMG --header_version 4 --kernel Image.gz --output boot-gz.img
           $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-gz.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
-          cp ./boot-gz.img ../$ANDROID_SHORT-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.kernelsu_variant }}-gz-${{ env.BUILD_DATETIME }}.img
+          cp ./boot-gz.img ../$ANDROID_SHORT-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.kernelsu_variant }}-GZ-${{ env.BUILD_DATETIME }}.img
           
           echo "Building boot-lz4.img"
           $MKBOOTIMG --header_version 4 --kernel Image.lz4 --output boot-lz4.img
           $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-lz4.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
-          cp ./boot-lz4.img ../$ANDROID_SHORT-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.kernelsu_variant }}-lz4-${{ env.BUILD_DATETIME }}.img
+          cp ./boot-lz4.img ../$ANDROID_SHORT-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.kernelsu_variant }}-LZ4-${{ env.BUILD_DATETIME }}.img
+          
+     - name: Compress all img files with gzip
+        run: |
+          for image in *.img; do
+            gzip -vnf9 "$image"
+          done
   
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
@@ -584,5 +590,5 @@ jobs:
           name: ${{ inputs.kernelsu_variant }}-kernel-${{ env.CONFIG }}
           path: |
             *.zip
-            *.img
+            *.img.gz
             *Image*
