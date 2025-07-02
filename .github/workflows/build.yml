@@ -24,9 +24,6 @@ on:
       kernelsu_branch:
         required: true
         type: string
-      kernelsu_branch_other:
-        required: false
-        type: string
       revision:
         required: false
         type: string
@@ -69,11 +66,11 @@ jobs:
           CONFIG="${{ inputs.android_version }}-${{ inputs.kernel_version }}-${{ inputs.sub_level }}"
           echo "CONFIG=$CONFIG" >> $GITHUB_ENV
           echo "CONFIG set to: $CONFIG"
-          # Set UTS_TIMESTAMP for UTS_VERSION and build-timestamp (e.g., Wed Jul 2 18:24:00 UTC 2025)
+          # Set UTS_TIMESTAMP for UTS_VERSION and build-timestamp (e.g., Wed Jul 2 00:53:00 UTC 2025)
           UTS_TIMESTAMP=$(date -u +"%a %b %d %T UTC %Y")
           echo "UTS_TIMESTAMP=$UTS_TIMESTAMP" >> $GITHUB_ENV
           echo "UTS_TIMESTAMP set to: $UTS_TIMESTAMP"
-          # Set BUILD_DATETIME for file naming (e.g., 20250627-1748)
+          # Set BUILD_DATETIME for file naming (e.g., 20250702-0853)
           BUILD_DATETIME=$(date -u +"%Y%m%d-%H%M")
           echo "BUILD_DATETIME=$BUILD_DATETIME" >> $GITHUB_ENV
           echo "BUILD_DATETIME set to: $BUILD_DATETIME"
@@ -159,22 +156,17 @@ jobs:
       - name: Determine the branch for KernelSU
         run: |
           case "${{ inputs.kernelsu_variant }}" in
-            "Dev")
-              if [[ "${{ inputs.kernelsu_variant }}" =~ ^(KSU|MKSU)$ ]]; then
-                echo "BRANCH=-s main" >> $GITHUB_ENV
-              elif [[ "${{ inputs.kernelsu_variant }}" == "NEXT" ]]; then
-                echo "BRANCH=-s next" >> $GITHUB_ENV
-              elif [[ "${{ inputs.kernelsu_variant }}" == "WILD" ]]; then
-                echo "BRANCH=-s wild" >> $GITHUB_ENV
-              fi
+            "WILD")
+              echo "BRANCH=-s wild" >> $GITHUB_ENV
               ;;
-            "Other")
-              if [[ -n "${{ inputs.kernelsu_branch_other }}" ]]; then
-                echo "BRANCH=-s ${{ inputs.kernelsu_branch_other }}" >> $GITHUB_ENV
-              else
-                echo "Error: Custom branch not provided for 'Other'" >&2
-                exit 1
-              fi
+            "KSU")
+              echo "BRANCH=-s main" >> $GITHUB_ENV
+              ;;
+            "NEXT")
+              echo "BRANCH=-s next" >> $GITHUB_ENV
+              ;;
+            "MKSU")
+              echo "BRANCH=-s main" >> $GITHUB_ENV
               ;;
           esac
       
@@ -378,7 +370,7 @@ jobs:
           echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_KSU_SUSFS_SUS_KSTAT=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_KSU_SUSFS_SUS_OVERLAYFS=n" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_LSU_SUSFS_TRY_UMOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_TRY_UMOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_KSU_SUSFS_SPOOF_UNAME=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_KSU_SUSFS_ENABLE_LOG=y" >> ./common/arch/arm64/configs/gki_defconfig
@@ -400,7 +392,7 @@ jobs:
           perl -pi -e "s{UTS_VERSION=\"\\\$\(echo \\\$UTS_VERSION \\\$CONFIG_FLAGS \\\$TIMESTAMP \| cut -b -\\\$UTS_LEN\)\"}{UTS_VERSION=\"#1 SMP PREEMPT \${{ env.UTS_TIMESTAMP }}\"}" ./common/scripts/mkcompile_h
 
           # Add custom suffix to setlocalversion
-          sed -i '$s|echo "\$res"|echo "\$res-TheFloresto+"|' ./common/scripts/setlocalversion
+          sed -i '$s|echo "\$res"|echo "\$res-mrvoki+"|' ./common/scripts/setlocalversion
 
           # Conditional logic for build/build.sh
           if [ -f "build/build.sh" ]; then
@@ -411,7 +403,7 @@ jobs:
             sed -i '/^[[:space:]]*"protected_exports_list"[[:space:]]*:[[:space:]]*"android\/abi_gki_protected_exports_aarch64",$/d' ./common/BUILD.bazel
             rm -rf ./common/android/abi_gki_protected_exports_*
             sed -i "/stable_scmversion_cmd/s/-maybe-dirty//g" ./build/kernel/kleaf/impl/stamp.bzl
-            sed -E -i "/^CONFIG_LOCALVERSION=/ s/(.*)\"/\\1-TheFloresto+\"/" ./common/arch/arm64/configs/gki_defconfig
+            sed -E -i "/^CONFIG_LOCALVERSION=/ s/(.*)\"/\\1-mrvoki+\"/" ./common/arch/arm64/configs/gki_defconfig
           fi
 
           # Remove check_defconfig
@@ -583,7 +575,7 @@ jobs:
           $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-lz4.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
           cp ./boot-lz4.img ../$ANDROID_SHORT-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.kernelsu_variant }}-lz4-${{ env.BUILD_DATETIME }}.img
           
-      - name: Compress all img files limb gzip
+      - name: Compress all img files with gzip
         run: |
           for image in *.img; do
             gzip -vnf9 "$image"
@@ -592,7 +584,7 @@ jobs:
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ inputs.k线lsu_variant }}-kernel-${{ env.CONFIG }}
+          name: ${{ inputs.kernelsu_variant }}-kernel-${{ env.CONFIG }}
           path: |
             *.zip
             *.img.gz
