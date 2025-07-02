@@ -73,11 +73,8 @@ jobs:
           UTS_TIMESTAMP=$(date -u +"%a %b %d %T UTC %Y")
           echo "UTS_TIMESTAMP=$UTS_TIMESTAMP" >> $GITHUB_ENV
           echo "UTS_TIMESTAMP set to: $UTS_TIMESTAMP"
-          # Set BUILD_DATETIME for file naming (e.g., 01.07.25-18.24)
-          BUILD_DATETIME=$(date -u +"%d.%m.%y-%H.%M")
-          echo "BUILD_DATETIME=$BUILD_DATETIME" >> $GITHUB_ENV
-          echo "BUILD_DATETIME set to: $BUILD_DATETIME"
-
+         # BUILD_DATETIME will be set after getting KSU version
+         echo "BUILD_DATETIME will be set after getting KSU version"
       - name: Install ccache
         run: sudo apt update && sudo apt install -y ccache
 
@@ -297,9 +294,9 @@ jobs:
             cd "$KSU_DIR/kernel"
             KSU_VERSION=$(expr $(/usr/bin/git rev-list --count HEAD) "+" $BASE_VERSION)
             echo "KSUVER=$KSU_VERSION" >> $GITHUB_ENV
-          else
-            echo "KSUVER=$BASE_VERSION" >> $GITHUB_ENV
-          fi
+         else
+           echo "KSUVER=$BASE_VERSION" >> $GITHUB_ENV
+         fi
 
       - name: Apply Hooks Patches
         run: |
@@ -335,30 +332,26 @@ jobs:
           case "${{ inputs.kernelsu_variant }}" in
             "WILD")
               echo "Applying Manager patch for Wild KSU..."
-              if [ -d Wild_KSU ] && [ -f ../kernel_patches/wild/manager.patch ]; then
-                cd Wild_KSU
-                cp ../../kernel_patches/wild/manager.patch ./
-                patch -p1 --fuzz=3 < manager.patch || echo "Manager patch failed or not found"
-              fi
+              cd Wild_KSU
+              cp ../../kernel_patches/wild/manager.patch ./
               ;;
             "KSU")
               echo "Applying Manager patch for Official KernelSU..."
-              if [ -d KernelSU ] && [ -f ../kernel_patches/wild/manager.patch ]; then
-                cd KernelSU
-                cp ../../kernel_patches/wild/manager.patch ./
-                patch -p1 --fuzz=3 < manager.patch || echo "Manager patch failed or not found"
-              fi
+              cd KernelSU
+              cp ../../kernel_patches/wild/manager.patch ./
               ;;
             "NEXT")
               echo "Applying Manager patch for KernelSU Next..."
-              # Disabled as commented out in original
+              cd KernelSU-Next
+              #cp ../../kernel_patches/next/manager.patch .//
               ;;
             "MKSU")
               echo "Applying Manager patch for MKSU..."
-              # Disabled as commented out in original
+              #cp ../kernel_patches/mksu/manager.patch .//
               ;;
           esac
-
+          patch -p1 --fuzz=3 < manager.patch || echo "No Manager Patch"
+          
       - name: Add Configuration Settings
         run: |
           echo "Changing to configuration directory: $CONFIG..."
