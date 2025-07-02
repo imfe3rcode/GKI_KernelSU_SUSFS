@@ -67,10 +67,8 @@ jobs:
         run: |
           # Set CONFIG dynamically based on inputs values
           CONFIG="${{ inputs.android_version }}-${{ inputs.kernel_version }}-${{ inputs.sub_level }}"
-
           # Set CONFIG as an environment variable for future steps
           echo "CONFIG=$CONFIG" >> $GITHUB_ENV
-
           echo "CONFIG set to: $CONFIG"
 
       - name: Install ccache
@@ -78,7 +76,9 @@ jobs:
 
       - name: Set up ccache
         run: |
-          mkdir -p ~/.cache/bazel
+          mkdir -p $HOME/.ccache
+          echo "Created ccache directory: $HOME/.ccache"
+          ls -ld $HOME/.ccache
           ccache --version
           ccache --max-size=2G
           ccache --set-config=compression=true
