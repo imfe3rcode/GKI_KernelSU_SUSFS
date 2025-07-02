@@ -50,7 +50,7 @@ jobs:
           remove-codeql: 'true'          # Frees ~5.4 GB
           remove-docker-images: 'true'   # Frees ~3.2 GB
           remove-large-packages: 'true'  # Frees ~3.1 GB
-          remove-swapfile: 'false'        # Frees ~4 GB
+          remove-swapfile: 'false'        # Adds ~20 GB :0
           remove-cached-tools: 'false'   # Avoid unless confirmed safe
           verbose: 'true'                # Enable detailed logging
 
