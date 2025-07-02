@@ -196,7 +196,7 @@ jobs:
               curl -LSs "https://raw.githubusercontent.com/5ec1cff/KernelSU/main/kernel/setup.sh" | bash ${{ env.BRANCH }}
               ;;
           esac
-
+          
 - name: Getting KernelSU Version
   run: |
     echo "Changing to configuration directory: $CONFIG..."
