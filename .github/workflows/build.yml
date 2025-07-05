@@ -366,7 +366,7 @@ jobs:
           perl -pi -e 's{UTS_VERSION="\$\(echo \$UTS_VERSION \$CONFIG_FLAGS \$TIMESTAMP \| cut -b -\$UTS_LEN\)"}{UTS_VERSION="#1 SMP PREEMPT '"$UTS_TIMESTAMP"'"}' ./common/scripts/mkcompile_h
 
           # Add custom suffix to setlocalversion
-          sed -i '$s|echo "\$res"|echo "\$res-@NoFloresto+@mr_vokintos"|' ./common/scripts/setlocalversion
+          sed -i '$s|echo "\$res"|echo "\$res-TheFloresto+"|' ./common/scripts/setlocalversion
 
           # Conditional logic for build/build.sh
           if [ -f "build/build.sh" ]; then
@@ -377,7 +377,7 @@ jobs:
             sed -i '/^[[:space:]]*"protected_exports_list"[[:space:]]*:[[:space:]]*"android\/abi_gki_protected_exports_aarch64",$/d' ./common/BUILD.bazel
             rm -rf ./common/android/abi_gki_protected_exports_*
             sed -i 's/-maybe-dirty//' ./build/kernel/kleaf/impl/stamp.bzl
-            sed -i "/^CONFIG_LOCALVERSION=/ s/\"$/\"-@NoFloresto+@mr_vokintos/" ./common/arch/arm64/configs/gki_defconfig
+            sed -i "/^CONFIG_LOCALVERSION=/ s/\"$/\"-TheFloresto+/" ./common/arch/arm64/configs/gki_defconfig
           fi
 
       - name: Build
@@ -387,7 +387,7 @@ jobs:
           cd "$CONFIG"
           echo "Building the kernel..."
           if [ -f "build/build.sh" ]; then
-            LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh CC="/usr/bin/ccache clang" || exit 1
+            LTO=full BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh CC="/usr/bin/ccache clang" || exit 1
           else
             tools/bazel build --sandbox_writable_path=$HOME/.ccache --disk_cache=~/.cache/bazel-disk --config=fast --lto=full //common:kernel_aarch64_dist || exit 1
           fi
