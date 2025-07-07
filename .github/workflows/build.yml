@@ -50,11 +50,11 @@ jobs:
           remove-codeql: 'true'          # Frees ~5.4 GB
           remove-docker-images: 'true'   # Frees ~3.2 GB
           remove-large-packages: 'true'  # Frees ~3.1 GB
-          remove-swapfile: 'false'        # Frees ~20 GB
+          remove-swapfile: 'true'        # Frees ~4 GB
           remove-cached-tools: 'false'   # Avoid unless confirmed safe
           verbose: 'true'                # Enable detailed logging
 
-      - name: SWAP
+      - name: Setup SWAP
         run: |
           sudo swapoff -a
           sudo fallocate -l 20G /swapfile
@@ -126,7 +126,7 @@ jobs:
           echo "Using branch for SUSFS: $SUSFS_BRANCH"
           git clone https://github.com/TheFloresto/AnyKernel3.git -b "$ANYKERNEL_BRANCH"
           git clone https://gitlab.com/simonpunk/susfs4ksu.git -b "$SUSFS_BRANCH"
-          git clone https://github.com/TheFloresto/kernel_patches.git -b main
+          git clone https://github.com/TheFloresto/kernel_patches.git
 
       - name: Check Disk Space Before Sync
         run: |
@@ -228,18 +228,12 @@ jobs:
             "NEXT")
               echo "Applying SUSFS patches for KernelSU Next..."
               cd ./KernelSU-Next
-              cp -v ../../kernel_patches/next/susfs_fix_patches/v1.5.9/fix_apk_sign.c.patch ./
-              patch -p1 --forward --fuzz=3 < fix_apk_sign.c.patch
-              cp -v ../../kernel_patches/next/susfs_fix_patches/v1.5.9/fix_core_hook.c.patch ./
-              patch -p1 --forward --fuzz=3 < fix_core_hook.c.patch
-              cp -v ../../kernel_patches/next/susfs_fix_patches/v1.5.9/fix_selinux.c.patch ./
-              patch -p1 --forward --fuzz=3 < fix_selinux.c.patch
-              cp -v ../../kernel_patches/next/susfs_fix_patches/v1.5.9/fix_ksud.c.patch ./
-              patch -p1 --forward --fuzz=3 < fix_ksud.c.patch
+              cp -v ../../kernel_patches/next/0001-Susfs-1.5.9.patch ./
+              patch -p1 --forward --fuzz=3 < 0001-Susfs-1.5.9.patch 
               ;;
             "MKSU")
               echo "Applying SUSFS patches for MKSU..."
-              cd ./KernelS
+              cd ./KernelSU
               ;;
           esac
 
@@ -354,30 +348,25 @@ jobs:
             echo "CONFIG_KSU_SUSFS_SUS_SU=y" >> ./common/arch/arm64/configs/gki_defconfig
           fi
 
-      - name: Change Kernel Name and Timestamp
+      - name: Change Kernel Name
         run: |
           cd "$CONFIG"
 
-          # Set dynamic UTS_TIMESTAMP
-          UTS_TIMESTAMP=$(date -u "+%a %b %d %H:%M:%S UTC %Y")
-          echo "UTS_TIMESTAMP=$UTS_TIMESTAMP" >> $GITHUB_ENV
+          # Get current date in the required format
+          CURRENT_DATE=$(date -u +"%a %b %d %H:%M:%S UTC %Y")
 
-          # Modify UTS_VERSION with UTS_TIMESTAMP
-          perl -pi -e 's{UTS_VERSION="\$\(echo \$UTS_VERSION \$CONFIG_FLAGS \$TIMESTAMP \| cut -b -\$UTS_LEN\)"}{UTS_VERSION="#1 SMP PREEMPT '"$UTS_TIMESTAMP"'"}' ./common/scripts/mkcompile_h
-
-          # Add custom suffix to setlocalversion
-          sed -i '$s|echo "\$res"|echo "\$res-@NoFloresto"|' ./common/scripts/setlocalversion
-
-          # Conditional logic for build/build.sh
+          # modify UTS_VERSION with dynamic date
+          perl -pi -e "s{UTS_VERSION=\"\\\$\\(echo \\\$UTS_VERSION \\\$CONFIG_FLAGS \\\$TIMESTAMP \\| cut -b -\\\$UTS_LEN\\)\"}{UTS_VERSION=\"#1 SMP PREEMPT $CURRENT_DATE\"}" ./common/scripts/mkcompile_h
+          
+          sed -i '$s|echo "\$res"|echo "\$res-@NoFloresto+@mr_vokintos"|' ./common/scripts/setlocalversion
           if [ -f "build/build.sh" ]; then
-            sed -i 's/-dirty//' ./common/scripts/setlocalversion
+           sed -i 's/-dirty//' ./common/scripts/setlocalversion
           else
-            # Set build-timestamp with proper escaping
-            sed -i 's/build-timestamp = \$(or \$(KBUILD_BUILD_TIMESTAMP), \$(build-timestamp-auto))/build-timestamp = "'"$UTS_TIMESTAMP"'"/' ./common/init/Makefile
-            sed -i '/^[[:space:]]*"protected_exports_list"[[:space:]]*:[[:space:]]*"android\/abi_gki_protected_exports_aarch64",$/d' ./common/BUILD.bazel
-            rm -rf ./common/android/abi_gki_protected_exports_*
-            sed -i 's/-maybe-dirty//' ./build/kernel/kleaf/impl/stamp.bzl
-            sed -i "/^CONFIG_LOCALVERSION=/ s/\"$/\"-@NoFloresto/" ./common/arch/arm64/configs/gki_defconfig
+           sed -i "s/build-timestamp = \$(or \$(KBUILD_BUILD_TIMESTAMP), \$(build-timestamp-auto))/build-timestamp = \"$CURRENT_DATE\"/" ./common/init/Makefile
+           sed -i '/^[[:space:]]*"protected_exports_list"[[:space:]]*:[[:space:]]*"android\/abi_gki_protected_exports_aarch64",$/d' ./common/BUILD.bazel
+           rm -rf ./common/android/abi_gki_protected_exports_*
+           sed -i "/stable_scmversion_cmd/s/-maybe-dirty//g" ./build/kernel/kleaf/impl/stamp.bzl
+           sed -E -i "/^CONFIG_LOCALVERSION=/ s/(.*)\"/\\1-@NoFloresto+@mr_vokintos\"/" ./common/arch/arm64/configs/gki_defconfig
           fi
 
       - name: Build
