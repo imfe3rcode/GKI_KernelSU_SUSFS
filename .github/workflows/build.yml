@@ -228,9 +228,14 @@ jobs:
             "NEXT")
               echo "Applying SUSFS patches for KernelSU Next..."
               cd ./KernelSU-Next
-              cp -v ../../kernel_patches/next/0001-kernel-implement-susfs-v1.5.8-KernelSU-Next-v1.0.8.patch ./
-              patch -p1 --fuzz=3 < 0001-kernel-implement-susfs-v1.5.8-KernelSU-Next-v1.0.8.patch
-              
+              cp -v ../../kernel_patches/next/susfs_fix_patches/v1.5.9/fix_apk_sign.c.patch ./
+              patch -p1 --forward --fuzz=3 < fix_apk_sign.c.patch
+              cp -v ../../kernel_patches/next/susfs_fix_patches/v1.5.9/fix_core_hook.c.patch ./
+              patch -p1 --forward --fuzz=3 < fix_core_hook.c.patch
+              cp -v ../../kernel_patches/next/susfs_fix_patches/v1.5.9/fix_selinux.c.patch ./
+              patch -p1 --forward --fuzz=3 < fix_selinux.c.patch
+              cp -v ../../kernel_patches/next/susfs_fix_patches/v1.5.9/fix_ksud.c.patch ./
+              patch -p1 --forward --fuzz=3 < fix_ksud.c.patch
               ;;
             "MKSU")
               echo "Applying SUSFS patches for MKSU..."
@@ -361,7 +366,7 @@ jobs:
           perl -pi -e 's{UTS_VERSION="\$\(echo \$UTS_VERSION \$CONFIG_FLAGS \$TIMESTAMP \| cut -b -\$UTS_LEN\)"}{UTS_VERSION="#1 SMP PREEMPT '"$UTS_TIMESTAMP"'"}' ./common/scripts/mkcompile_h
 
           # Add custom suffix to setlocalversion
-          sed -i '$s|echo "\$res"|echo "\$res-@NoFloresto+@mr_vokintos"|' ./common/scripts/setlocalversion
+          sed -i '$s|echo "\$res"|echo "\$res-@NoFloresto"|' ./common/scripts/setlocalversion
 
           # Conditional logic for build/build.sh
           if [ -f "build/build.sh" ]; then
@@ -372,7 +377,7 @@ jobs:
             sed -i '/^[[:space:]]*"protected_exports_list"[[:space:]]*:[[:space:]]*"android\/abi_gki_protected_exports_aarch64",$/d' ./common/BUILD.bazel
             rm -rf ./common/android/abi_gki_protected_exports_*
             sed -i 's/-maybe-dirty//' ./build/kernel/kleaf/impl/stamp.bzl
-            sed -i "/^CONFIG_LOCALVERSION=/ s/\"$/\"-@NoFloresto+@mr_vokintos/" ./common/arch/arm64/configs/gki_defconfig
+            sed -i "/^CONFIG_LOCALVERSION=/ s/\"$/\"-@NoFloresto/" ./common/arch/arm64/configs/gki_defconfig
           fi
 
       - name: Build
