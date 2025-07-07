@@ -50,7 +50,7 @@ jobs:
           remove-codeql: 'true'          # Frees ~5.4 GB
           remove-docker-images: 'true'   # Frees ~3.2 GB
           remove-large-packages: 'true'  # Frees ~3.1 GB
-          remove-swapfile: 'false'        # Frees ~4 GB
+          remove-swapfile: 'false'        # Frees ~20 GB
           remove-cached-tools: 'false'   # Avoid unless confirmed safe
           verbose: 'true'                # Enable detailed logging
 
@@ -78,14 +78,12 @@ jobs:
 
       - name: Set up ccache
         run: |
-          mkdir -p $HOME/.ccache
-          echo "Created ccache directory: $HOME/.ccache"
-          ls -ld $HOME/.ccache
+          mkdir -p ~/.cache/bazel
           ccache --version
           ccache --max-size=2G
           ccache --set-config=compression=true
           echo "CCACHE_DIR=$HOME/.ccache" >> $GITHUB_ENV
-          
+
       - name: Download toolchain
         run: |
           AOSP_MIRROR=https://android.googlesource.com
@@ -220,8 +218,6 @@ jobs:
             "WILD")
               echo "Applying SUSFS patches for Official KernelSU..."
               cd ./Wild_KSU
-              cp -v ../../kernel_patches/next/0001-kernel-implement-susfs-v1.5.8-KernelSU-Next-v1.0.8.patch ./
-              patch -p1 --fuzz=3 < 0001-kernel-implement-susfs-v1.5.8-KernelSU-Next-v1.0.8.patch
               ;;
             "KSU")
               echo "Applying SUSFS patches for Official KernelSU..."
@@ -234,12 +230,11 @@ jobs:
               cd ./KernelSU-Next
               cp -v ../../kernel_patches/next/0001-kernel-implement-susfs-v1.5.8-KernelSU-Next-v1.0.8.patch ./
               patch -p1 --fuzz=3 < 0001-kernel-implement-susfs-v1.5.8-KernelSU-Next-v1.0.8.patch
+              
               ;;
             "MKSU")
               echo "Applying SUSFS patches for MKSU..."
-              cd ./KernelSU
-              cp ../../kernel_patches/next/0001_susfs_157_for_ksunext.patch ./
-              patch -p1 --forward --fuzz=3 < 0001_susfs_157_for_ksunext.patch
+              cd ./KernelS
               ;;
           esac
 
@@ -389,7 +384,7 @@ jobs:
           if [ -f "build/build.sh" ]; then
             LTO=full BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh CC="/usr/bin/ccache clang" || exit 1
           else
-            tools/bazel build --sandbox_writable_path=$HOME/.ccache --disk_cache=~/.cache/bazel-disk --config=fast --lto=full //common:kernel_aarch64_dist || exit 1
+            tools/bazel build --disk_cache=/home/runner/.cache/bazel --config=fast --lto=full //common:kernel_aarch64_dist || exit 1
           fi
           ccache --show-stats
 
