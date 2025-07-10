@@ -410,7 +410,7 @@ jobs:
       - name: Patch Image File A12 & A13
         if: ${{ inputs.android_version == 'android12' || inputs.android_version == 'android13' }}
         run: |
-          if [ "${{ inputs.kernelsu_variant }}" == "SukiSU" ] && [ "${{ inputs.kernel_version }}" != "6.1" ]; then
+          if [ "${{ inputs.kernelsu_variant }}" == "SukiSU" ] && [ "${{ inputs.kernel_version }}" != "1.1" ]; then
             echo "Patching Image file for SukiSU..."
             cd "$CONFIG/out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist"
             curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU_patch/refs/heads/main/kpm/patch_linux" -o patch
@@ -424,7 +424,7 @@ jobs:
       - name: Patch Image File A14 & A15
         if: ${{ inputs.android_version == 'android14' || inputs.android_version == 'android15' }}
         run: |
-          if [ "${{ inputs.kernelsu_variant }}" == "SukiSU" ] && [ "${{ inputs.kernel_version }}" != "6.1" ]; then
+          if [ "${{ inputs.kernelsu_variant }}" == "SukiSU" ] && [ "${{ inputs.kernel_version }}" != "1.1" ]; then
             echo "Patching Image file for SukiSU..."
             cd "$CONFIG/bazel-bin/common/kernel_aarch64/"
             curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU_patch/refs/heads/main/kpm/patch_linux" -o patch
