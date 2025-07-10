@@ -261,10 +261,6 @@ jobs:
             "SukiSU")
               echo "Applying SUSFS patches for SukiSU..."
               cd ./KernelSU
-              if [ "${{ inputs.kernel_version }}" == "6.1" ]; then
-                echo "Applying WIFI patch for kernel 6.1..."
-                curl -LSs "https://github.com/OnePlus-12-Development/android_kernel_qcom_sm8650/commit/3e0cb08.patch" | patch -p1 --forward --fuzz=3 || true
-              fi
               ;;
           esac
 
@@ -325,6 +321,12 @@ jobs:
             cp ../../SukiSU_patch/69_hide_stuff.patch ./
           fi
           patch -p1 -F 3 < 69_hide_stuff.patch
+
+           # WIFI PATCH
+           if [ "${{ inputs.kernel_version }}" == "6.1" ]; then
+             echo "Applying WIFI patch for kernel 6.1..."
+             curl -LSs "https://github.com/OnePlus-12-Development/android_kernel_qcom_sm8650/commit/3e0cb08.patch" | patch -p1 --forward --fuzz=3 || true
+            fi
 
       - name: Add Configuration Settings
         run: |
