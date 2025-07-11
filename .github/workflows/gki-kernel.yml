@@ -454,52 +454,10 @@ jobs:
           # Create gzip of the Image file
           gzip -n -k -f -9 ./Image > ./Image.gz
 
-      - name: Manual KMP Patch (After Build)
+      - name: Clone AnyKernel3
         run: |
-          echo "Applying manual KMP patch after build..."
-          cd "$CONFIG"
-          
-          # Определяем путь к Image в зависимости от версии Android
-          if [ "${{ inputs.android_version }}" == "android12" ] || [ "${{ inputs.android_version }}" == "android13" ]; then
-            IMAGE_PATH="out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist"
-          else
-            IMAGE_PATH="bazel-bin/common/kernel_aarch64"
-          fi
-          
-          echo "Image path: $IMAGE_PATH"
-          
-          # Копируем оригинальный Image в kmp директорию
-          echo "Copying Image to KMP directory..."
-          cp "$IMAGE_PATH/Image" ../SukiSU_patch/kmp/
-          
-          # Переходим в kmp директорию и применяем патч
-          echo "Applying KMP patch..."
-          cd ../SukiSU_patch/kmp/
-          chmod +x ./patch_linux
-          ./patch_linux Image
-          
-          # Проверяем что патч создал oImage
-          if [ ! -f "oImage" ]; then
-            echo "Error: oImage not found after patching!"
-            exit 1
-          fi
-          
-          # Переименовываем patched image
-          echo "Renaming patched image..."
-          mv oImage Image
-          
-          # Создаем сжатые версии
-          echo "Creating compressed versions..."
-          gzip -n -k -f -9 -c ./Image > ./Image.gz
-          lz4 -9 -k -f -c ./Image > ./Image.lz4
-          
-          # Возвращаем все версии обратно в оригинальную директорию
-          echo "Moving patched images back..."
-          mv Image "../../$CONFIG/$IMAGE_PATH/"
-          mv Image.gz "../../$CONFIG/$IMAGE_PATH/"
-          mv Image.lz4 "../../$CONFIG/$IMAGE_PATH/"
-          
-          echo "Manual KMP patch completed successfully!"
+          echo "Cloning AnyKernel3..."
+          git clone https://github.com/osm0sis/AnyKernel3.git --depth=1
 
       - name: Create ZIP Files for Different Formats
         run: |
