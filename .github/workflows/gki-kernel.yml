@@ -36,13 +36,13 @@ on:
         type: string
 
 jobs:
-  build-kernel-kernelsu-susfs:
+  build-gki:
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     env:
       CCACHE_COMPILERCHECK: "%compiler% -dumpmachine; %compiler% -dumpversion"
       CCACHE_NOHASHDIR: "true"
       CCACHE_HARDLINK: "true"
-      ZRAM: "true"
 
     steps:
       - name: Maximize Build Space
@@ -153,6 +153,7 @@ jobs:
 
           # Clone repositories using the branch names
           git clone https://github.com/ShirkNeko/susfs4ksu.git -b "$SUSFS_BRANCH"
+          git clone https://github.com/WildPlusKernel/kernel_patches.git
           git clone https://github.com/ShirkNeko/SukiSU_patch.git
           git clone https://github.com/TheFloresto/AnyKernel3.git -b sukisu
 
@@ -391,13 +392,50 @@ jobs:
           
           echo "Image path: $IMAGE_PATH"
           
+          # Проверяем существование Image файла
+          if [ ! -f "$IMAGE_PATH/Image" ]; then
+            echo "Error: Image file not found at $IMAGE_PATH/Image"
+            echo "Contents of $IMAGE_PATH:"
+            ls -la "$IMAGE_PATH/" || echo "Directory not found"
+            exit 1
+          fi
+          
+          # Проверяем существование KMP директории и файлов
+          KMP_DIR="../kernel_patches"
+          if [ ! -d "$KMP_DIR" ]; then
+            echo "Error: KMP directory not found at $KMP_DIR"
+            echo "Checking for alternative paths..."
+            
+            # Проверяем другие возможные пути
+            if [ -d "../SukiSU_patch/kmp" ]; then
+              KMP_DIR="../SukiSU_patch/kmp"
+              echo "Found KMP directory at $KMP_DIR"
+            elif [ -d "../SukiSU-Ultra_SukiSU_patch/kmp" ]; then
+              KMP_DIR="../SukiSU-Ultra_SukiSU_patch/kmp"
+              echo "Found KMP directory at $KMP_DIR"
+            else
+              echo "Error: Cannot find KMP directory!"
+              echo "Available directories:"
+              ls -la ../
+              exit 1
+            fi
+          fi
+          
+          # Проверяем существование файла patch_linux
+          if [ ! -f "$KMP_DIR/patch_linux" ]; then
+            echo "Error: patch_linux not found in $KMP_DIR"
+            echo "Contents of $KMP_DIR:"
+            ls -la "$KMP_DIR"
+            exit 1
+          fi
+          
           # Копируем оригинальный Image в kmp директорию
           echo "Copying Image to KMP directory..."
-          cp "$IMAGE_PATH/Image" ../SukiSU_patch/kmp/
+          cp "$IMAGE_PATH/Image" "$KMP_DIR/"
           
           # Переходим в kmp директорию и применяем патч
           echo "Applying KMP patch..."
-          cd ../SukiSU_patch/kmp/
+          cd "$KMP_DIR"
           chmod +x ./patch_linux
           ./patch_linux Image
           
@@ -418,9 +456,11 @@ jobs:
           
           # Возвращаем все версии обратно в оригинальную директорию
           echo "Moving patched images back..."
-          mv Image "../../$CONFIG/$IMAGE_PATH/"
-          mv Image.gz "../../$CONFIG/$IMAGE_PATH/"
-          mv Image.lz4 "../../$CONFIG/$IMAGE_PATH/"
+          # Вычисляем правильный путь обратно
+          WORKSPACE_DIR=$(pwd | sed 's|/[^/]*$||')  # Убираем последнюю директорию из пути
+          mv Image "$WORKSPACE_DIR/$CONFIG/$IMAGE_PATH/"
+          mv Image.gz "$WORKSPACE_DIR/$CONFIG/$IMAGE_PATH/"
+          mv Image.lz4 "$WORKSPACE_DIR/$CONFIG/$IMAGE_PATH/"
           
           echo "Manual KMP patch completed successfully!"
 
