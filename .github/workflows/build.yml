@@ -184,8 +184,8 @@ jobs:
 
       - name: Determine the branch for KernelSU
         run: |
-          branch_input="${{ inputs.kernelsu_branch }}"
-          variant_input="${{ inputs.kernelsu_variant }}"
+          echo "Debug: branch_input=$branch_input"
+          echo "Debug: variant_input=$variant_input"
           
           case "$branch_input" in
             "Stable(标准)")
