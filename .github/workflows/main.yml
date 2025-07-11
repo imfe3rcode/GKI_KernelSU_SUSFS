@@ -295,7 +295,7 @@ jobs:
           echo "RELEASE_NOTES<<EOF" >> $GITHUB_ENV
           echo "$RELEASE_NOTES" >> $GITHUB_ENV
           echo "" >> $GITHUB_ENV
-          echo "LTO: thin" >> $GITHUB_ENV
+          echo "LTO: full" >> $GITHUB_ENV
           echo "<details>" >> $GITHUB_ENV
           echo "<summary>Commit Hashes and Links</summary>" >> $GITHUB_ENV
           echo "" >> $GITHUB_ENV
