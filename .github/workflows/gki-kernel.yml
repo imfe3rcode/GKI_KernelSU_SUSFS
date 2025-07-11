@@ -268,8 +268,8 @@ jobs:
         run: |
           if [ "${{ inputs.kernel_version }}" == "6.1" ]; then
             echo "Applying WIFI patch for kernel 6.1..."
-            curl -LSs https://github.com/OnePlus-12-Development/android_kernel_qcom_sm8650/commit/3e0cb08.patch -o test.patch
-            patch -p1 --forward --fuzz=3 < test.patch || true
+            curl -LSs https://github.com/OnePlus-12-Development/android_kernel_qcom_sm8650/commit/3e0cb08.patch -o wifi.patch
+            patch -p1 --forward --fuzz=3 < wifi.patch || true
           fi
 
       - name: Add Configuration Settings
