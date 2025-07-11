@@ -17,6 +17,11 @@ on:
         required: false
         type: string
         default: ""
+      use_kpm:
+        description: '是否开启KPM功能?'
+        required: true
+        type: boolean
+        default: true
 
 jobs:
   build-kernels-a15:
@@ -56,3 +61,4 @@ jobs:
       kernelsu_variant: ${{ inputs.kernelsu_variant }}
       kernelsu_branch: ${{ inputs.kernelsu_branch }}
       kernelsu_branch_other: ${{ inputs.kernelsu_branch_other || '' }}}
+      use_kpm: ${{ inputs.use_kpm }}
