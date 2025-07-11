@@ -154,7 +154,7 @@ jobs:
           # Clone repositories using the branch names
           git clone https://github.com/ShirkNeko/susfs4ksu.git -b "$SUSFS_BRANCH"
           git clone https://github.com/ShirkNeko/SukiSU_patch.git
-          git clone https://github.com/TheFloresto/AnyKernel3.git -b sukisu
+          git clone https://github.com/MiRinChan/AnyKernel3.git
 
       - name: Set CONFIG Environment Variable
         run: |
@@ -267,9 +267,14 @@ jobs:
       - name: Apply WIFI Patches
         run: |
           if [ "${{ inputs.kernel_version }}" == "6.1" ]; then
-            echo "Applying WIFI patch for kernel 6.1..."
-            curl -LSs https://github.com/OnePlus-12-Development/android_kernel_qcom_sm8650/commit/3e0cb08.patch -o wifi.patch
-            patch -p1 --forward --fuzz=3 < wifi.patch || true
+             echo "Applying WIFI patch for kernel 6.1..."
+            if curl -LSs https://github.com/OnePlus-12-Development/android_kernel_qcom_sm8650/commit/3e0cb08.patch | patch -p1 --forward --fuzz=3; then
+              echo "WIFI patch applied successfully"
+           else
+             echo "Warning: WIFI patch failed to apply or download, but continuing..."
+            fi
+          else
+           echo "Skipping WIFI patch - not kernel version 6.1"
           fi
 
       - name: Add Configuration Settings
@@ -342,7 +347,7 @@ jobs:
            sed -i '/^[[:space:]]*"protected_exports_list"[[:space:]]*:[[:space:]]*"android\/abi_gki_protected_exports_aarch64",$/d' ./common/BUILD.bazel
            rm -rf ./common/android/abi_gki_protected_exports_*
            sed -i "/stable_scmversion_cmd/s/-maybe-dirty//g" ./build/kernel/kleaf/impl/stamp.bzl
-           sed -E -i "/^CONFIG_LOCALVERSION=/ s/(.*)\"/\\1-@NoFloresto+@mr_vokintos\"/" ./common/arch/arm64/configs/gki_defconfig
+           sed -E -i "/^CONFIG_LOCALVERSION=/ s/(.*)\"/\\1-@NoFloresto\"/" ./common/arch/arm64/configs/gki_defconfig
           fi
 
       - name: Build with retry
@@ -375,7 +380,7 @@ jobs:
       - name: Patch Image File A12 & A13
         if: ${{ inputs.android_version == 'android12' || inputs.android_version == 'android13' }}
         run: |
-          if [ "${{ inputs.kernel_version }}" != "6.6" ]; then
+          if [ "${{ inputs.kernel_version }}" != "1.1" ]; then
             echo "Patching Image file..."
             cd "$CONFIG/out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist"
             curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU_patch/refs/heads/main/kpm/patch_linux" -o patch
@@ -389,7 +394,7 @@ jobs:
       - name: Patch Image File A14 & A15
         if: ${{ inputs.android_version == 'android14' || inputs.android_version == 'android15' }}
         run: |
-          if [ "${{ inputs.kernel_version }}" != "6.6" ]; then
+          if [ "${{ inputs.kernel_version }}" != "1.1" ]; then
             echo "Patching Image file..."
             cd "$CONFIG/bazel-bin/common/kernel_aarch64/"
             curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU_patch/refs/heads/main/kpm/patch_linux" -o patch
