@@ -139,8 +139,8 @@ jobs:
       - build-kernel-a15-6-6
     if: ${{ inputs.make_release }}
     env:
-      REPO_OWNER: MiRinFork
-      REPO_NAME: GKI_SukiSU_SUSFS
+      REPO_OWNER: TheFloresto
+      REPO_NAME: GKI_KernelSU_SUSFS
       GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
       # RELEASE_NAME: "GKI Kernels With KernelSU-${{ inputs.kernelsu_variant }} ${{ inputs.kernelsu_branch }} & SUSFS v1.5.7 *TEST BUILD*"
       RELEASE_NOTES: |
@@ -148,21 +148,30 @@ jobs:
         > Take your own risk! Nobody tested. `fastboot boot` bofore flash it.
 
         Features:
-        - ${{ inputs.kernelsu_variant }} (${{ inputs.kernelsu_branch }})
-        - **ඞ** SUSFS
-        - Manual Syscall Hooks
-        - Wireguard Support
-        - BBR Support
+          -> SukiSU KSU Kernels & Others
+          -> Multi Manager Support for Wild Kernels & Next Kernels (Not Recommended)
+          -> SUSFS ඞ v1.5.9
+          -> Scope-Minimized Manual hooks v1.4
+          -> Magic Mount Support
+          -> Simple Maphide for LineageOS Detections
+          -> Futile Maphide for jit-zygote-cache Detections
+          -> Wireguard Support
+          -> BBR Support
+          -> LTO = full
+          Notes:
+          -> Wild KSU & KernelSU-Next, SUS SU Mode 2 will show as disabled or not compatble due to non-kprobe hooks and is not needed anymore!
+          -> Official Kernel Flasher is broken with latest susfs, try https://github.com/fatalcoder524/KernelFlasher/ or https://github.com/libxzr/HorizonKernelFlasher!
 
-        Usage: 
-          - Use [HorizonKernelFlasher](https://github.com/libxzr/HorizonKernelFlasher). Don't use Kernel Flasher, it is broken.
-          - Another way (same as update), is, touch “Working”(status) card in SukiSU Ultra, touch GKI/non-GKI installation, touch Install Anykernel3, then select AnyKernel3 zip file.
-
-        > [!NOTE]  
-        > SUS SU Mode 2 will show as disabled or not compatble due to non-kprobe hooks and is not needed anymore! 
-
-        SUSFS manage WebUI: 
-        - https://github.com/sidex15/susfs4ksu-module
+          Module: 
+          -> https://github.com/sidex15/ksu_module_susfs
+      
+          Managers:
+          -> Wild KSU: https://github.com/WildKernels/Wild_KSU / https://t.me/WildKernels
+          -> KernelSU: https://github.com/tiann/KernelSU / https://t.me/KernelSU_group
+          -> 5ec1cff's KernelSU: https://github.com/5ec1cff/KernelSU / https://t.me/mksu_ci
+          -> KernelSU-Next: https://github.com/rifsxd/KernelSU-Next / https://t.me/ksunext_group
+          -> rsuntk: https://github.com/rsuntk/KernelSU / https://t.me/rsukrnlsu
+          -> backslashxx: https://github.com/backslashxx/KernelSU
 
     steps:
       # Get Date
