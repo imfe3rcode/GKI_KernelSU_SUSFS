@@ -79,7 +79,7 @@ jobs:
 
       # Install ccache
       - name: Install ccache
-        run: sudo apt update && sudo apt upgrade -y && sudo apt install -y ccache python3 git curl
+        run: sudo apt update && sudo apt upgrade -y && sudo apt install -y ccache python3 git curl LZ4
 
       - name: Set up ccache
         run: |
@@ -154,7 +154,7 @@ jobs:
           # Clone repositories using the branch names
           git clone https://github.com/ShirkNeko/susfs4ksu.git -b "$SUSFS_BRANCH"
           git clone https://github.com/ShirkNeko/SukiSU_patch.git
-          git clone https://github.com/MiRinChan/AnyKernel3.git
+          git clone https://github.com/TheFloresto/kernel_patches.git -b sukisu
 
       - name: Set CONFIG Environment Variable
         run: |
@@ -268,7 +268,7 @@ jobs:
         run: |
           if [ "${{ inputs.kernel_version }}" == "6.1" ]; then
              echo "Applying WIFI patch for kernel 6.1..."
-            if curl -LSs https://github.com/OnePlus-12-Development/android_kernel_qcom_sm8650/commit/3e0cb08.patch | patch -p1 --forward --fuzz=3; then
+            if curl -LSs https://github.com/OnePlus-12-Development/android_kernel_qcom_sm8650/commit/3e0cb08.patch | patch -p1 --fuzz=3; then
               echo "WIFI patch applied successfully"
            else
              echo "Warning: WIFI patch failed to apply or download, but continuing..."
@@ -377,33 +377,52 @@ jobs:
             fi
             ccache --show-stats
 
-      - name: Patch Image File A12 & A13
-        if: ${{ inputs.android_version == 'android12' || inputs.android_version == 'android13' }}
+      - name: Manual KMP Patch (After Build)
         run: |
-          if [ "${{ inputs.kernel_version }}" != "1.1" ]; then
-            echo "Patching Image file..."
-            cd "$CONFIG/out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist"
-            curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU_patch/refs/heads/main/kpm/patch_linux" -o patch
-            chmod 777 patch
-            ./patch
-            rm -rf Image
-            mv oImage Image
-            cd ../../../..
+          echo "Applying manual KMP patch after build..."
+          cd "$CONFIG"
+          
+          # Определяем путь к Image в зависимости от версии Android
+          if [ "${{ inputs.android_version }}" == "android12" ] || [ "${{ inputs.android_version }}" == "android13" ]; then
+            IMAGE_PATH="out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist"
+          else
+            IMAGE_PATH="bazel-bin/common/kernel_aarch64"
           fi
-
-      - name: Patch Image File A14 & A15
-        if: ${{ inputs.android_version == 'android14' || inputs.android_version == 'android15' }}
-        run: |
-          if [ "${{ inputs.kernel_version }}" != "1.1" ]; then
-            echo "Patching Image file..."
-            cd "$CONFIG/bazel-bin/common/kernel_aarch64/"
-            curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU_patch/refs/heads/main/kpm/patch_linux" -o patch
-            chmod 777 patch
-            ./patch
-            rm -rf Image
-            mv oImage Image
-            cd ../../..
+          
+          echo "Image path: $IMAGE_PATH"
+          
+          # Копируем оригинальный Image в kmp директорию
+          echo "Copying Image to KMP directory..."
+          cp "$IMAGE_PATH/Image" ../SukiSU_patch/kmp/
+          
+          # Переходим в kmp директорию и применяем патч
+          echo "Applying KMP patch..."
+          cd ../SukiSU_patch/kmp/
+          chmod +x ./patch_linux
+          ./patch_linux Image
+          
+          # Проверяем что патч создал oImage
+          if [ ! -f "oImage" ]; then
+            echo "Error: oImage not found after patching!"
+            exit 1
           fi
+          
+          # Переименовываем patched image
+          echo "Renaming patched image..."
+          mv oImage Image
+          
+          # Создаем сжатые версии
+          echo "Creating compressed versions..."
+          gzip -n -k -f -9 -c ./Image > ./Image.gz
+          lz4 -9 -k -f -c ./Image > ./Image.lz4
+          
+          # Возвращаем все версии обратно в оригинальную директорию
+          echo "Moving patched images back..."
+          mv Image "../../$CONFIG/$IMAGE_PATH/"
+          mv Image.gz "../../$CONFIG/$IMAGE_PATH/"
+          mv Image.lz4 "../../$CONFIG/$IMAGE_PATH/"
+          
+          echo "Manual KMP patch completed successfully!"
 
       - name: Create Bootimgs Folder and Copy Images
         if: ${{ inputs.android_version == 'android12' || inputs.android_version == 'android13' }}
@@ -435,6 +454,53 @@ jobs:
           # Create gzip of the Image file
           gzip -n -k -f -9 ./Image > ./Image.gz
 
+      - name: Manual KMP Patch (After Build)
+        run: |
+          echo "Applying manual KMP patch after build..."
+          cd "$CONFIG"
+          
+          # Определяем путь к Image в зависимости от версии Android
+          if [ "${{ inputs.android_version }}" == "android12" ] || [ "${{ inputs.android_version }}" == "android13" ]; then
+            IMAGE_PATH="out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist"
+          else
+            IMAGE_PATH="bazel-bin/common/kernel_aarch64"
+          fi
+          
+          echo "Image path: $IMAGE_PATH"
+          
+          # Копируем оригинальный Image в kmp директорию
+          echo "Copying Image to KMP directory..."
+          cp "$IMAGE_PATH/Image" ../SukiSU_patch/kmp/
+          
+          # Переходим в kmp директорию и применяем патч
+          echo "Applying KMP patch..."
+          cd ../SukiSU_patch/kmp/
+          chmod +x ./patch_linux
+          ./patch_linux Image
+          
+          # Проверяем что патч создал oImage
+          if [ ! -f "oImage" ]; then
+            echo "Error: oImage not found after patching!"
+            exit 1
+          fi
+          
+          # Переименовываем patched image
+          echo "Renaming patched image..."
+          mv oImage Image
+          
+          # Создаем сжатые версии
+          echo "Creating compressed versions..."
+          gzip -n -k -f -9 -c ./Image > ./Image.gz
+          lz4 -9 -k -f -c ./Image > ./Image.lz4
+          
+          # Возвращаем все версии обратно в оригинальную директорию
+          echo "Moving patched images back..."
+          mv Image "../../$CONFIG/$IMAGE_PATH/"
+          mv Image.gz "../../$CONFIG/$IMAGE_PATH/"
+          mv Image.lz4 "../../$CONFIG/$IMAGE_PATH/"
+          
+          echo "Manual KMP patch completed successfully!"
+
       - name: Create ZIP Files for Different Formats
         run: |
           echo "Creating zip files for all formats..."
@@ -459,78 +525,78 @@ jobs:
           # zip -r "../$ZIP_NAME" ./*
           # rm ./Image.gz
 
-      # - name: Run Boot Image ${{ inputs.android_version }} Build Script
-      #   if: ${{ inputs.android_version == 'android12' }}
-      #   run: |
-      #     echo "Changing to configuration directory: $CONFIG..."
-      #     cd bootimgs
+      - name: Run Boot Image ${{ inputs.android_version }} Build Script
+        if: ${{ inputs.android_version == 'android12' }}
+        run: |
+           echo "Changing to configuration directory: $CONFIG..."
+           cd bootimgs
 
-      #     GKI_URL=https://dl.google.com/android/gki/gki-certified-boot-android12-5.10-"${{ inputs.os_patch_level }}"_"${{ inputs.revision }}".zip
-      #     FALLBACK_URL=https://dl.google.com/android/gki/gki-certified-boot-android12-5.10-2023-01_r1.zip
+           GKI_URL=https://dl.google.com/android/gki/gki-certified-boot-android12-5.10-"${{ inputs.os_patch_level }}"_"${{ inputs.revision }}".zip
+           FALLBACK_URL=https://dl.google.com/android/gki/gki-certified-boot-android12-5.10-2023-01_r1.zip
 
-      #     # Check if the GKI URL is available
-      #     echo "Checking if GKI kernel URL is reachable: $GKI_URL"
-      #     status=$(curl -sL -w "%{http_code}" "$GKI_URL" -o /dev/null)
+           # Check if the GKI URL is available
+           echo "Checking if GKI kernel URL is reachable: $GKI_URL"
+           status=$(curl -sL -w "%{http_code}" "$GKI_URL" -o /dev/null)
 
-      #     if [ "$status" = "200" ]; then
-      #         echo "[+] Downloading from GKI_URL"
-      #         curl -Lo gki-kernel.zip "$GKI_URL"
-      #     else
-      #         echo "[+] $GKI_URL not found, using $FALLBACK_URL"
-      #         curl -Lo gki-kernel.zip "$FALLBACK_URL"
-      #     fi
+           if [ "$status" = "200" ]; then
+               echo "[+] Downloading from GKI_URL"
+               curl -Lo gki-kernel.zip "$GKI_URL"
+           else
+               echo "[+] $GKI_URL not found, using $FALLBACK_URL"
+               curl -Lo gki-kernel.zip "$FALLBACK_URL"
+           fi
 
-      #     # Unzip the downloaded kernel and remove the zip
-      #     echo "Unzipping the downloaded kernel..."
-      #     unzip gki-kernel.zip && rm gki-kernel.zip
+           # Unzip the downloaded kernel and remove the zip
+           echo "Unzipping the downloaded kernel..."
+           unzip gki-kernel.zip && rm gki-kernel.zip
 
-      #     echo "Unpacking boot.img..."
-      #     FULL_PATH=$(pwd)/boot-5.10.img
-      #     echo "Unpacking using: $FULL_PATH"
+           echo "Unpacking boot.img..."
+           FULL_PATH=$(pwd)/boot-5.10.img
+           echo "Unpacking using: $FULL_PATH"
 
-      #     echo "Running unpack_bootimg.py..."
-      #     $UNPACK_BOOTIMG --boot_img="$FULL_PATH"
+           echo "Running unpack_bootimg.py..."
+           $UNPACK_BOOTIMG --boot_img="$FULL_PATH"
 
-      #     echo "Building Image.gz"
-      #     gzip -n -k -f -9 ./Image > ./Image.gz
+           echo "Building Image.gz"
+           gzip -n -k -f -9 ./Image > ./Image.gz
 
-      #     echo "Building boot.img"
-      #     $MKBOOTIMG --header_version 4 --kernel Image --output boot.img --ramdisk out/ramdisk --os_version 12.0.0 --os_patch_level "${{ inputs.os_patch_level }}"
-      #     $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
-      #     cp ./boot.img ../${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.os_patch_level }}-boot.img
+           echo "Building boot.img"
+           $MKBOOTIMG --header_version 4 --kernel Image --output boot.img --ramdisk out/ramdisk --os_version 12.0.0 --os_patch_level "${{ inputs.os_patch_level }}"
+           $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
+           cp ./boot.img ../${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.os_patch_level }}-boot.img
 
-      #     echo "Building boot-gz.img"
-      #     $MKBOOTIMG --header_version 4 --kernel Image.gz --output boot-gz.img --ramdisk out/ramdisk --os_version 12.0.0 --os_patch_level "${{ inputs.os_patch_level }}"
-      #     $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-gz.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
-      #     cp ./boot-gz.img ../${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.os_patch_level }}-boot-gz.img
+           echo "Building boot-gz.img"
+           $MKBOOTIMG --header_version 4 --kernel Image.gz --output boot-gz.img --ramdisk out/ramdisk --os_version 12.0.0 --os_patch_level "${{ inputs.os_patch_level }}"
+           $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-gz.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
+           cp ./boot-gz.img ../${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.os_patch_level }}-boot-gz.img
 
-      #     echo "Building boot-lz4.img"
-      #     $MKBOOTIMG --header_version 4 --kernel Image.lz4 --output boot-lz4.img --ramdisk out/ramdisk --os_version 12.0.0 --os_patch_level "${{ inputs.os_patch_level }}"
-      #     $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-lz4.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
-      #     cp ./boot-lz4.img ../${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.os_patch_level }}-boot-lz4.img
+           echo "Building boot-lz4.img"
+           $MKBOOTIMG --header_version 4 --kernel Image.lz4 --output boot-lz4.img --ramdisk out/ramdisk --os_version 12.0.0 --os_patch_level "${{ inputs.os_patch_level }}"
+           $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-lz4.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
+           cp ./boot-lz4.img ../${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.os_patch_level }}-boot-lz4.img
 
-      # - name: Run Boot Image ${{ inputs.android_version }} Build Script
-      #   if: ${{ inputs.android_version == 'android13' || inputs.android_version == 'android14' || inputs.android_version == 'android15' }}
-      #   run: |
-      #     cd bootimgs
+      - name: Run Boot Image ${{ inputs.android_version }} Build Script
+        if: ${{ inputs.android_version == 'android13' || inputs.android_version == 'android14' || inputs.android_version == 'android15' }}
+        run: |
+           cd bootimgs
 
-      #     echo "Building Image.gz"
-      #     gzip -n -k -f -9 ./Image > ./Image.gz
+           echo "Building Image.gz"
+           gzip -n -k -f -9 ./Image > ./Image.gz
 
-      #     echo "Building boot.img"
-      #     $MKBOOTIMG --header_version 4 --kernel Image --output boot.img
-      #     $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
-      #     cp ./boot.img ../${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.os_patch_level }}-boot.img
+           echo "Building boot.img"
+           $MKBOOTIMG --header_version 4 --kernel Image --output boot.img
+           $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
+           cp ./boot.img ../${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.os_patch_level }}-boot.img
 
-      #     echo "Building boot-gz.img"
-      #     $MKBOOTIMG --header_version 4 --kernel Image.gz --output boot-gz.img
-      #     $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-gz.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
-      #     cp ./boot-gz.img ../${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.os_patch_level }}-boot-gz.img
+           echo "Building boot-gz.img"
+           $MKBOOTIMG --header_version 4 --kernel Image.gz --output boot-gz.img
+           $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-gz.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
+           cp ./boot-gz.img ../${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.os_patch_level }}-boot-gz.img
 
-      #     echo "Building boot-lz4.img"
-      #     $MKBOOTIMG --header_version 4 --kernel Image.lz4 --output boot-lz4.img
-      #     $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-lz4.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
-      #     cp ./boot-lz4.img ../${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.os_patch_level }}-boot-lz4.img
+           echo "Building boot-lz4.img"
+           $MKBOOTIMG --header_version 4 --kernel Image.lz4 --output boot-lz4.img
+           $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-lz4.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
+           cp ./boot-lz4.img ../${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.os_patch_level }}-boot-lz4.img
 
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
@@ -538,4 +604,5 @@ jobs:
           name: kernel-${{ env.CONFIG }}
           path: |
             *.zip
-            *.img
+            *.img.gz
+            *Image*
