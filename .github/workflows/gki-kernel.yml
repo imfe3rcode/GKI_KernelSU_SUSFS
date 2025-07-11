@@ -79,7 +79,7 @@ jobs:
 
       # Install ccache
       - name: Install ccache
-        run: sudo apt update && sudo apt upgrade -y && sudo apt install -y ccache python3 git curl LZ4
+        run: sudo apt update && sudo apt upgrade -y && sudo apt install -y ccache python3 git curl lz4
 
       - name: Set up ccache
         run: |
