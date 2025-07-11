@@ -1,12 +1,15 @@
-name: Build Kernel - A12
-
+name: Android 12 5.10
 permissions:
-  contents: write  # Allow writing to repository contents
-  actions: write   # Allows triggering actions
+  contents: write # Allow writing to repository contents (for pushing tags)
+  actions: write # Allows triggering actions
 
 on:
-  workflow_call:
+  workflow_call: # This allows this workflow to be called from another workflow
     inputs:
+      make_release:
+        required: true
+        type: boolean
+        default: true
       kernelsu_variant:
         required: true
         type: string
@@ -16,17 +19,11 @@ on:
       kernelsu_branch_other:
         required: false
         type: string
-        default: ""
-      use_kpm:
-        description: '是否开启KPM功能?'
-        required: true
-        type: boolean
-        default: true
 
 jobs:
-  build-kernels-a12:
+  build-kernel-a12-5-10-kernelsu-susfs:
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
         include:
         - sub_level: "168"
@@ -59,9 +56,10 @@ jobs:
         - sub_level: "X"
           os_patch_level: "lts"
           revision: "r1"
-    uses: ./.github/workflows/build.yml
+    uses: ./.github/workflows/gki-kernel.yml
     secrets: inherit
     with:
+      make_release: ${{ inputs.make_release }}
       android_version: "android12"
       kernel_version: "5.10"
       sub_level: ${{ matrix.sub_level }}
@@ -69,5 +67,4 @@ jobs:
       revision: ${{ matrix.revision }}
       kernelsu_variant: ${{ inputs.kernelsu_variant }}
       kernelsu_branch: ${{ inputs.kernelsu_branch }}
-      kernelsu_branch_other: ${{ inputs.kernelsu_branch_other || '' }}
-      use_kpm: ${{ inputs.use_kpm }}
+      kernelsu_branch_other: ${{ inputs.kernelsu_branch_other }}
