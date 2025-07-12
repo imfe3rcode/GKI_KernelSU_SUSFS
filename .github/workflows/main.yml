@@ -65,6 +65,23 @@ on:
         default: "" # Default is empty, but can be filled in if 'Other' is selected
 
 jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Telegram Notification
+        run: |
+          curl -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -F chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -F message_thread_id="${{ secrets.TELEGRAM_MESSAGE_THREAD_ID }}" \
+            -F text="
+            🚀 Build started for Kernel! 
+            📦 *Repository:* [${{ github.repository }}](https://github.com/${{ github.repository }})
+            🗂️ *Branch:* ${{ github.ref_name }}
+            ✏️ *Commit:* [${{ github.sha }}](https://github.com/${{ github.repository }}/commit/${{ github.sha }})
+            [🔗 View GitHub Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})" \
+            -F parse_mode="Markdown"
+
+jobs:
   build-kernel-a12-5-10:
     if: ${{ inputs.build_a12_510 }}
     uses: ./.github/workflows/kernel-a12-5.10.yml
@@ -370,21 +387,15 @@ jobs:
           echo "GitHub release created with the following files:"
           ls ./downloaded-artifacts/**/*
 
-      - name: Send telegram message on push
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          TELEGRAM_MESSAGE_THREAD_ID: ${{ secrets.TELEGRAM_MESSAGE_THREAD_ID }}
-        # run: |
-        #   curl -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
-        #     -d "chat_id=$TELEGRAM_CHAT_ID" \
-        #     -d "message_thread_id=$TELEGRAM_MESSAGE_THREAD_ID" \
-        #     -d "text=Latest release:
-        #     https://github.com/ShirkNeko/GKI_KernelSU_SUSFS/releases/tag/${{ env.NEW_TAG }}"
+      - name: Send Telegram Notification
         run: |
-          curl -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
-            -d "chat_id=-100$TELEGRAM_CHAT_ID" \
-            -d "text=新推送 ${{ env.currentdate }}
-          https://github.com/TheFloresto/GKI_KernelSU_SUSFS/releases/tag/${{ env.NEW_TAG }}
-          请在有另一台设备的情况下安装。此构建暂未经过测试。
-            "
+          curl -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -F chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -F message_thread_id="${{ secrets.TELEGRAM_MESSAGE_THREAD_ID }}" \
+            -F text="
+            🌽 *New Stable Kernel Release Uploaded*  
+            📦 *Repository:* [${{ github.repository }}](https://github.com/${{ github.repository }})  
+            🗂️ *Branch:* ${{ github.ref_name }}  
+            ✏️ *Commit:* [${{ github.sha }}](https://github.com/${{ github.repository }}/commit/${{ github.sha }})  
+            [🔗 View GitHub Release](https://github.com/${{ github.repository }}/releases/tag/${{ env.NEW_TAG }})" \
+            -F parse_mode="Markdown"
