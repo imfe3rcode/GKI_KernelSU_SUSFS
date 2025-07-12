@@ -153,7 +153,7 @@ jobs:
 
           # Clone repositories using the branch names
           git clone https://github.com/ShirkNeko/susfs4ksu.git -b "$SUSFS_BRANCH"
-          git clone https://github.com/ShirkNeko/SukiSU_patch.git
+          git clone https://github.com/SukiSU-Ultra/SukiSU_patch.git
           git clone https://github.com/TheFloresto/AnyKernel3.git -b sukisu
 
       - name: Set CONFIG Environment Variable
@@ -409,7 +409,7 @@ jobs:
             if [ -d "../SukiSU_patch/kmp" ]; then
               KMP_DIR="../SukiSU_patch/kmp"
               echo "Found KMP directory at $KMP_DIR"
-            elif [ -d "../SukiSU-Ultra_SukiSU_patch/kmp" ]; then
+            elif [ -d "../SukiSU-Ultra.SukiSU_patch/kmp" ]; then
               KMP_DIR="../SukiSU-Ultra_SukiSU_patch/kmp"
               echo "Found KMP directory at $KMP_DIR"
             else
