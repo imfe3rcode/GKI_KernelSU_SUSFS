@@ -158,52 +158,6 @@ jobs:
       REPO_OWNER: TheFloresto
       REPO_NAME: GKI_KernelSU_SUSFS
       GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
-      # RELEASE_NAME: "GKI Kernels With KernelSU-${{ inputs.kernelsu_variant }} ${{ inputs.kernelsu_branch }} & SUSFS v1.5.7 *TEST BUILD*"
-      RELEASE_NOTES: |
-        > [!CAUTION]
-        > Take your own risk! Nobody tested. `fastboot boot` bofore flash it.
-
-        Features:
-          -> ${{ inputs.kernelsu_variant }} (${{ inputs.kernelsu_branch }})
-          -> Wild KSU Kernels & Others
-          -> Multi Manager Support for Wild Kernels & Next Kernels (Not Recommended)
-          -> SUSFS ඞ v1.5.9
-          -> Scope-Minimized syscall hooks
-          -> Magic Mount Support
-          -> Simple Maphide for LineageOS Detections
-          -> Futile Maphide for jit-zygote-cache Detections
-          -> Wireguard Support
-          -> BBR Support
-          -> LTO = thin
-          Notes:
-          -> Wild KSU & KernelSU-Next, SUS SU Mode 2 will show as disabled or not compatble due to non-kprobe hooks and is not needed anymore!
-          -> Official Kernel Flasher is broken with latest susfs, try https://github.com/fatalcoder524/KernelFlasher/ or https://github.com/libxzr/HorizonKernelFlasher!
-
-        Usage: 
-          - Use [HorizonKernelFlasher](https://github.com/libxzr/HorizonKernelFlasher). Don't use Kernel Flasher, it is broken.
-          - Another way (same as update), is, touch “Working”(status) card in SukiSU Ultra, touch GKI/non-GKI installation, touch Install Anykernel3, then select AnyKernel3 zip file.
-          Module: 
-          -> https://github.com/sidex15/ksu_module_susfs
-      
-          Managers:
-          -> SukiSU: https://github.com/SukiSU-Ultra/SukiSU-Ultra / https://t.me/Sukiksu
-      
-          Commit Hashes (at the time of release):
-          -> SukiSU: [${{ env.SukiSU_REF }}](${{ env.SukiSU_URL }})
-          -> SUSFS4KSU: 
-            -> gki-android12-5.10: [${{ env.COMMIT_HASH_gki_android12_5_10 }}](${{ env.COMMIT_URL_gki_android12_5_10 }})
-            -> gki-android13-5.10: [${{ env.COMMIT_HASH_gki_android13_5_10 }}](${{ env.COMMIT_URL_gki_android13_5_10 }})
-            -> gki-android13-5.15: [${{ env.COMMIT_HASH_gki_android13_5_15 }}](${{ env.COMMIT_URL_gki_android13_5_15 }})
-            -> gki-android14-5.15: [${{ env.COMMIT_HASH_gki_android14_5_15 }}](${{ env.COMMIT_URL_gki_android14_5_15 }})
-            -> gki-android14-6.1: [${{ env.COMMIT_HASH_gki_android14_6_1 }}](${{ env.COMMIT_URL_gki_android14_6_1 }})
-            -> gki-android15-6.6: [${{ env.COMMIT_HASH_gki_android15_6_6 }}](${{ env.COMMIT_URL_gki_android15_6_6 }})
-          EOF
-
-        > [!NOTE]  
-        > SUS SU Mode 2 will show as disabled or not compatble due to non-kprobe hooks and is not needed anymore! 
-
-        SUSFS manage WebUI: 
-        - https://github.com/sidex15/susfs4ksu-module
 
     steps:
       # Get Date
@@ -291,6 +245,7 @@ jobs:
             ["gki_android13_5_15"]="gki-android13-5.15"
             ["gki_android14_5_15"]="gki-android14-5.15"
             ["gki_android14_6_1"]="gki-android14-6.1"
+            ["gki_android15_6_6"]="gki-android15-6.6"
           )
 
           for var_name in "${!BRANCH_MAP[@]}"; do
@@ -308,38 +263,64 @@ jobs:
             fi
           done
 
-      - name: Append Commit Hashes & Links to `RELEASE_NOTES` & Append KernelSU-Next Reference to `RELEASE_NOTES`
+      - name: Build Release Notes
         run: |
-          if [ "${{ inputs.kernelsu_variant }}" == "SukiSU" ]; then
-            echo "This is the SukiSU variant"
-            echo "RELEASE_NOTES<<EOF" >> $GITHUB_ENV
-            echo "$RELEASE_NOTES" >> $GITHUB_ENV
-            echo "SukiSU Ultra Manager:" >> $GITHUB_ENV
-            echo "- https://github.com/SukiSU-Ultra/SukiSU-Ultra" >> $GITHUB_ENV
-            echo "EOF" >> $GITHUB_ENV
-          else
-            echo "Unknown variant"
-          fi
+          cat << 'EOF' > release_notes.md
+          > [!CAUTION]
+          > Take your own risk! Nobody tested. `fastboot boot` before flash it.
 
-      - name: Append Commit Hashes & Links to `RELEASE_NOTES` & Append KernelSU-Next Reference to `RELEASE_NOTES`
-        run: |
+          Features:
+            -> ${{ inputs.kernelsu_variant }} (${{ inputs.kernelsu_branch }})
+            -> Wild KSU Kernels & Others
+            -> Multi Manager Support for Wild Kernels & Next Kernels (Not Recommended)
+            -> SUSFS ඞ v1.5.9
+            -> Scope-Minimized syscall hooks
+            -> Magic Mount Support
+            -> Simple Maphide for LineageOS Detections
+            -> Futile Maphide for jit-zygote-cache Detections
+            -> Wireguard Support
+            -> BBR Support
+            -> LTO = thin
+            
+          Notes:
+            -> Wild KSU & KernelSU-Next, SUS SU Mode 2 will show as disabled or not compatible due to non-kprobe hooks and is not needed anymore!
+            -> Official Kernel Flasher is broken with latest susfs, try https://github.com/fatalcoder524/KernelFlasher/ or https://github.com/libxzr/HorizonKernelFlasher!
+
+          Usage: 
+            - Use [HorizonKernelFlasher](https://github.com/libxzr/HorizonKernelFlasher). Don't use Kernel Flasher, it is broken.
+            - Another way (same as update), is, touch "Working"(status) card in SukiSU Ultra, touch GKI/non-GKI installation, touch Install Anykernel3, then select AnyKernel3 zip file.
+            
+          Module: 
+            -> https://github.com/sidex15/ksu_module_susfs
+        
+          Managers:
+            -> SukiSU: https://github.com/SukiSU-Ultra/SukiSU-Ultra / https://t.me/Sukiksu
+
+          > [!NOTE]  
+          > SUS SU Mode 2 will show as disabled or not compatible due to non-kprobe hooks and is not needed anymore! 
+
+          SUSFS manage WebUI: 
+          - https://github.com/sidex15/susfs4ksu-module
+
+          <details>
+          <summary>Commit Hashes and Links</summary>
+
+          - KernelSU:
+            - ${{ inputs.kernelsu_variant }}-${{ inputs.kernelsu_branch }}: [${{ env.KSU_REF }}](${{ env.KSU_URL }})
+          - SUSFS4KSU:
+            - gki-android12-5.10: [${{ env.COMMIT_HASH_gki_android12_5_10 }}](${{ env.COMMIT_URL_gki_android12_5_10 }})
+            - gki-android13-5.10: [${{ env.COMMIT_HASH_gki_android13_5_10 }}](${{ env.COMMIT_URL_gki_android13_5_10 }})
+            - gki-android13-5.15: [${{ env.COMMIT_HASH_gki_android13_5_15 }}](${{ env.COMMIT_URL_gki_android13_5_15 }})
+            - gki-android14-5.15: [${{ env.COMMIT_HASH_gki_android14_5_15 }}](${{ env.COMMIT_URL_gki_android14_5_15 }})
+            - gki-android14-6.1: [${{ env.COMMIT_HASH_gki_android14_6_1 }}](${{ env.COMMIT_URL_gki_android14_6_1 }})
+            - gki-android15-6.6: [${{ env.COMMIT_HASH_gki_android15_6_6 }}](${{ env.COMMIT_URL_gki_android15_6_6 }})
+
+          </details>
+          EOF
+
+          # Store the release notes in environment variable
           echo "RELEASE_NOTES<<EOF" >> $GITHUB_ENV
-          echo "$RELEASE_NOTES" >> $GITHUB_ENV
-          echo "" >> $GITHUB_ENV
-          echo "LTO: thin" >> $GITHUB_ENV
-          echo "<details>" >> $GITHUB_ENV
-          echo "<summary>Commit Hashes and Links</summary>" >> $GITHUB_ENV
-          echo "" >> $GITHUB_ENV
-          echo "- KernelSU:" >> $GITHUB_ENV
-          echo "  - ${{ inputs.kernelsu_variant }}-${{ inputs.kernelsu_branch }}: [$KSU_REF]($KSU_URL)" >> $GITHUB_ENV
-          echo "- SUSFS4KSU:" >> $GITHUB_ENV
-          echo "  - gki-android12-5.10: [$COMMIT_HASH_gki_android12_5_10]($COMMIT_URL_gki_android12_5_10)" >> $GITHUB_ENV
-          echo "  - gki-android13-5.10: [$COMMIT_HASH_gki_android13_5_10]($COMMIT_URL_gki_android13_5_10)" >> $GITHUB_ENV
-          echo "  - gki-android13-5.15: [$COMMIT_HASH_gki_android13_5_15]($COMMIT_URL_gki_android13_5_15)" >> $GITHUB_ENV
-          echo "  - gki-android14-5.15: [$COMMIT_HASH_gki_android14_5_15]($COMMIT_URL_gki_android14_5_15)" >> $GITHUB_ENV
-          echo "  - gki-android14-6.1: [$COMMIT_HASH_gki_android14_6_1]($COMMIT_URL_gki_android14_6_1)" >> $GITHUB_ENV
-          echo "" >> $GITHUB_ENV
-          echo "</details>" >> $GITHUB_ENV
+          cat release_notes.md >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
 
       # Get the Latest Tag from GitHub
@@ -376,9 +357,9 @@ jobs:
       - name: Create GitHub Release
         uses: actions/create-release@v1
         with:
-          tag_name: ${{ env.currentdate }} # Use the generated tag for the release
+          tag_name: ${{ env.NEW_TAG }} # Use the generated tag for the release
           prerelease: true # Mark the release as a pre-release
-          release_name: ${{ env.currentdate }} # Pass the RELEASE_NAME to the action
+          release_name: ${{ env.NEW_TAG }} # Use the generated tag as release name
           body: ${{ env.RELEASE_NOTES }} # Pass the RELEASE_NOTES to the action
 
       - name: Upload Release Assets Dynamically
@@ -400,7 +381,6 @@ jobs:
         run: |
           echo "GitHub release created with the following files:"
           ls ./downloaded-artifacts/**/*
-
 
       - name: Send Telegram Notification
         run: |
