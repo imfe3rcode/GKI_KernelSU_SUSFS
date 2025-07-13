@@ -531,11 +531,6 @@ jobs:
           # Create gzip of the Image file
           gzip -n -k -f -9 ./Image > ./Image.gz
 
-      - name: Clone AnyKernel3
-        run: |
-          echo "Cloning AnyKernel3..."
-          git clone https://github.com/osm0sis/AnyKernel3.git --depth=1
-
       - name: Create ZIP Files for Different Formats
         run: |
           echo "Creating zip files for all formats..."
