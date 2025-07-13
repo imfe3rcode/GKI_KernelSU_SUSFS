@@ -380,10 +380,14 @@ jobs:
             fi
             ccache --show-stats
 
-      - name: Manual KPM Patch (After Build)
+- name: Manual KPM Patch (After Build)
         run: |
           echo "Applying manual KPM patch after build..."
           cd "$CONFIG"
+          
+          # Store the original working directory
+          ORIGINAL_DIR=$(pwd)
+          echo "Original directory: $ORIGINAL_DIR"
           
           # Определяем путь к Image в зависимости от версии Android
           if [ "${{ inputs.android_version }}" == "android12" ] || [ "${{ inputs.android_version }}" == "android13" ]; then
@@ -404,7 +408,7 @@ jobs:
           
           # Проверяем существование KPM директории и файлов
           KPM_DIR="../kernel_patches"
-          if [ ! -d "$KPm_DIR" ]; then
+          if [ ! -d "$KPM_DIR" ]; then
             echo "Error: KPM directory not found at $KPM_DIR"
             echo "Checking for alternative paths..."
             
@@ -412,7 +416,7 @@ jobs:
             if [ -d "../SukiSU_patch/kpm" ]; then
               KPM_DIR="../SukiSU_patch/kpm"
               echo "Found KPM directory at $KPM_DIR"
-            elif [ -d "../SukiSU-Ultra.SukiSU_patch/kpm" ]; then
+            elif [ -d "../SukiSU-Ultra_SukiSU_patch/kpm" ]; then
               KPM_DIR="../SukiSU-Ultra_SukiSU_patch/kpm"
               echo "Found KPM directory at $KPM_DIR"
             else
@@ -458,13 +462,44 @@ jobs:
           
           # Возвращаем все версии обратно в оригинальную директорию
           echo "Moving patched images back..."
-          # Вычисляем правильный путь обратно
-          WORKSPACE_DIR=$(pwd | sed 's|/[^/]*$||')  # Убираем последнюю директорию из пути
-          mv Image "$WORKSPACE_DIR/$CONFIG/$IMAGE_PATH/"
-          mv Image.gz "$WORKSPACE_DIR/$CONFIG/$IMAGE_PATH/"
-          mv Image.lz4 "$WORKSPACE_DIR/$CONFIG/$IMAGE_PATH/"
+          
+          # Создаем целевую директорию если она не существует
+          TARGET_DIR="$ORIGINAL_DIR/$IMAGE_PATH"
+          if [ ! -d "$TARGET_DIR" ]; then
+            echo "Creating target directory: $TARGET_DIR"
+            mkdir -p "$TARGET_DIR"
+          fi
+          
+          # Проверяем что целевая директория существует
+          if [ ! -d "$TARGET_DIR" ]; then
+            echo "Error: Cannot create or access target directory: $TARGET_DIR"
+            exit 1
+          fi
+          
+          # Перемещаем файлы обратно
+          echo "Moving Image to $TARGET_DIR/"
+          mv Image "$TARGET_DIR/" || {
+            echo "Error: Failed to move Image"
+            exit 1
+          }
+          
+          echo "Moving Image.gz to $TARGET_DIR/"
+          mv Image.gz "$TARGET_DIR/" || {
+            echo "Error: Failed to move Image.gz"
+            exit 1
+          }
+          
+          echo "Moving Image.lz4 to $TARGET_DIR/"
+          mv Image.lz4 "$TARGET_DIR/" || {
+            echo "Error: Failed to move Image.lz4"
+            exit 1
+          }
+          
+          # Возвращаемся в исходную директорию
+          cd "$ORIGINAL_DIR"
           
           echo "Manual KPM patch completed successfully!"
+          echo "Patched files are now in: $TARGET_DIR"
 
       - name: Create Bootimgs Folder and Copy Images
         if: ${{ inputs.android_version == 'android12' || inputs.android_version == 'android13' }}
