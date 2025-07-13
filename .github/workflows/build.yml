@@ -198,6 +198,21 @@ jobs:
               curl -LSs "https://raw.githubusercontent.com/5ec1cff/KernelSU/main/kernel/setup.sh" | bash ${{ env.BRANCH }}
               ;;
           esac
+
+      - name: Apply WIFI Patches
+        run: |
+          echo "Changing to configuration directory: $CONFIG..."
+          cd "$CONFIG/common"
+          if [ "${{ inputs.kernel_version }}" == "6.1" ]; then
+             echo "Applying WIFI patch for kernel 6.1..."
+            if curl -LSs https://github.com/OnePlus-12-Development/android_kernel_qcom_sm8650/commit/3e0cb08.patch | patch -p1 --forward --fuzz=3; then
+              echo "WIFI patch applied successfully"
+           else
+             echo "Warning: WIFI patch failed to apply or download, but continuing..."
+            fi
+          else
+           echo "Skipping WIFI patch - not kernel version 6.1"
+          fi
           
       - name: Apply SUSFS Patches for KernelSU Variants
         run: |
@@ -207,12 +222,12 @@ jobs:
           echo "Applying SUSFS patches..."
           
           # Copy SUSFS patches
-          cp ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch ./common/
+          cp -v ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch ./common/
           cd common
           patch -p1 --forward --fuzz=3 < 50_add_susfs_in_gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch
           cd ..
-          cp ../susfs4ksu/kernel_patches/fs/* ./common/fs/
-          cp ../susfs4ksu/kernel_patches/include/linux/* ./common/include/linux/
+          cp -v ../susfs4ksu/kernel_patches/fs/* ./common/fs/
+          cp -v ../susfs4ksu/kernel_patches/include/linux/* ./common/include/linux/
           
           case "${{ inputs.kernelsu_variant }}" in
             "WILD")
@@ -287,11 +302,11 @@ jobs:
           
           if [ "${{ inputs.kernelsu_variant }}" == "NEXT" ]; then
             echo "Applying hooks for KernelSU-Next..."
-            cp ../../kernel_patches/next/scope_min_manual_hooks_v1.4.patch ./
+            cp -v ../../kernel_patches/next/scope_min_manual_hooks_v1.4.patch ./
             patch -p1 -F 3 < scope_min_manual_hooks_v1.4.patch
           elif [ "${{ inputs.kernelsu_variant }}" == "WILD" ]; then
             echo "Applying hooks for Wild KSU..."
-            cp ../../kernel_patches/wild/syscall_hooks.patch ./
+            cp -v ../../kernel_patches/wild/syscall_hooks.patch ./
             patch -p1 -F 3 < syscall_hooks.patch
           fi
 
@@ -299,21 +314,8 @@ jobs:
         run: |
           echo "Changing to configuration directory: $CONFIG..."
           cd "$CONFIG/common"
-          cp ../../kernel_patches/69_hide_stuff.patch ./
+          cp -v ../../kernel_patches/69_hide_stuff.patch ./
           patch -p1 -F 3 < 69_hide_stuff.patch
-
-      - name: Apply WIFI Patches
-        run: |
-          if [ "${{ inputs.kernel_version }}" == "6.1" ]; then
-             echo "Applying WIFI patch for kernel 6.1..."
-            if curl -LSs https://github.com/OnePlus-12-Development/android_kernel_qcom_sm8650/commit/3e0cb08.patch | patch -p1 --forward --fuzz=3; then
-              echo "WIFI patch applied successfully"
-           else
-             echo "Warning: WIFI patch failed to apply or download, but continuing..."
-            fi
-          else
-           echo "Skipping WIFI patch - not kernel version 6.1"
-          fi
 
       - name: Add Configuration Settings
         run: |
