@@ -36,13 +36,13 @@ on:
         type: string
 
 jobs:
-  build-gki:
+  build-kernel-kernelsu-susfs:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
     env:
       CCACHE_COMPILERCHECK: "%compiler% -dumpmachine; %compiler% -dumpversion"
       CCACHE_NOHASHDIR: "true"
       CCACHE_HARDLINK: "true"
+      ZRAM: "true"
 
     steps:
       - name: Maximize Build Space
@@ -79,7 +79,7 @@ jobs:
 
       # Install ccache
       - name: Install ccache
-        run: sudo apt update && sudo apt upgrade -y && sudo apt install -y ccache python3 git curl lz4
+        run: sudo apt update && sudo apt upgrade -y && sudo apt install -y ccache python3 git curl
 
       - name: Set up ccache
         run: |
@@ -153,8 +153,9 @@ jobs:
 
           # Clone repositories using the branch names
           git clone https://gitlab.com/simonpunk/susfs4ksu.git -b "$SUSFS_BRANCH"
-          git clone https://github.com/SukiSU-Ultra/SukiSU_patch.git
-          git clone https://github.com/TheFloresto/AnyKernel3.git -b sukisu
+          git clone https://github.com/WildPlusKernel/kernel_patches.git
+          git clone https://github.com/ShirkNeko/SukiSU_patch.git
+          git clone https://github.com/TheFloresto/AnyKernel3.git
 
       - name: Set CONFIG Environment Variable
         run: |
@@ -189,7 +190,6 @@ jobs:
           # Sync repo and apply patches
           $REPO --version
           $REPO --trace sync -c -j$(nproc --all) --no-tags --fail-fast
-          
       - name: Determine the branch for KernelSU
         run: |
           if [[ "${{ inputs.kernelsu_branch }}" == "Stable" && ( "${{ inputs.kernelsu_variant }}" == "SukiSU" ) ]]; then
@@ -288,51 +288,77 @@ jobs:
           echo "Adding configuration settings to gki_defconfig..."
 
           # Add KSU configuration settings
-          echo "CONFIG_KSU=y" | tee -a ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_KPM=y" | tee -a ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KPM=y" >> ./common/arch/arm64/configs/gki_defconfig
 
-          echo "CONFIG_KSU_SUSFS_SUS_SU=n" | tee -a ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_KSU_MANUAL_HOOK=y" | tee -a ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_SUS_SU=n" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_MANUAL_HOOK=y" >> ./common/arch/arm64/configs/gki_defconfig
 
           # Add SUSFS configuration settings
-          echo "CONFIG_KSU_SUSFS=y" | tee -a ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y" | tee -a ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_KSU_SUSFS_SUS_PATH=y" | tee -a ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y" | tee -a ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y" | tee -a ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y" | tee -a ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_KSU_SUSFS_SUS_KSTAT=y" | tee -a ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_KSU_SUSFS_SUS_OVERLAYFS=n" | tee -a ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_KSU_SUSFS_TRY_UMOUNT=y" | tee -a ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y" | tee -a ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_KSU_SUSFS_SPOOF_UNAME=y" | tee -a ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_KSU_SUSFS_ENABLE_LOG=y" | tee -a ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y" | tee -a ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y" | tee -a ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y" | tee -a ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_SUS_KSTAT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_SUS_OVERLAYFS=n" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_TRY_UMOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_SPOOF_UNAME=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_ENABLE_LOG=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y" >> ./common/arch/arm64/configs/gki_defconfig
 
           # Add additional tmpfs config setting
-          echo "CONFIG_TMPFS_XATTR=y" | tee -a ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_TMPFS_POSIX_ACL=y" | tee -a ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_TMPFS_XATTR=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_TMPFS_POSIX_ACL=y" >> ./common/arch/arm64/configs/gki_defconfig
 
           # Add additional config setting
-          echo "CONFIG_IP_NF_TARGET_TTL=y" | tee -a ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_IP6_NF_TARGET_HL=y" | tee -a ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_IP6_NF_MATCH_HL=y" | tee -a ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_IP_NF_TARGET_TTL=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_IP6_NF_TARGET_HL=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_IP6_NF_MATCH_HL=y" >> ./common/arch/arm64/configs/gki_defconfig
 
           # Add BBR Config
-          echo "CONFIG_TCP_CONG_ADVANCED=y" | tee -a ./common/arch/arm64/configs/gki_defconfig 
-          echo "CONFIG_TCP_CONG_BBR=y" | tee -a ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_NET_SCH_FQ=y" | tee -a ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_TCP_CONG_BIC=n" | tee -a ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_TCP_CONG_WESTWOOD=n" | tee -a ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_TCP_CONG_HTCP=n" | tee -a ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_DEFAULT_BBR=y" | tee -a ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_TCP_CONG_ADVANCED=y" >> ./common/arch/arm64/configs/gki_defconfig 
+          echo "CONFIG_TCP_CONG_BBR=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_NET_SCH_FQ=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_TCP_CONG_BIC=n" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_TCP_CONG_WESTWOOD=n" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_TCP_CONG_HTCP=n" >> ./common/arch/arm64/configs/gki_defconfig 
+          echo "CONFIG_DEFAULT_BBR=y" >> ./common/arch/arm64/configs/gki_defconfig 
+
+          # Add optimized 
+          echo "CONFIG_BPF_STREAM_PARSER=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_NETFILTER_XT_SET=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_IP_SET=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_IP_SET_MAX=65534" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_IP_SET_BITMAP_IP=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_IP_SET_BITMAP_IPMAC=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_IP_SET_BITMAP_PORT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_IP_SET_HASH_IP=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_IP_SET_HASH_IPMARK=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_IP_SET_HASH_IPPORT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_IP_SET_HASH_IPPORTIP=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_IP_SET_HASH_IPPORTNET=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_IP_SET_HASH_IPMAC=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_IP_SET_HASH_MAC=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_IP_SET_HASH_NETPORTNET=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_IP_SET_HASH_NET=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_IP_SET_HASH_NETNET=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_IP_SET_HASH_NETPORT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_IP_SET_HASH_NETIFACE=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_IP_SET_LIST_SET=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_IP6_NF_NAT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_IP6_NF_TARGET_MASQUERADE=y" >> ./common/arch/arm64/configs/gki_defconfig
+
 
           # Remove check_defconfig
           sed -i 's/check_defconfig//' ./common/build.config.gki
 
-      - name: Change Kernel Name
+      - name: Config Kernel Name
         run: |
           cd "$CONFIG"
 
@@ -380,126 +406,33 @@ jobs:
             fi
             ccache --show-stats
 
-      - name: Manual KPM Patch (After Build)
+      - name: Patch Image File A12 & A13
+        if: ${{ inputs.android_version == 'android12' || inputs.android_version == 'android13' }}
         run: |
-          echo "Applying manual KPM patch after build..."
-          cd "$CONFIG"
-          
-          # Store the original working directory
-          ORIGINAL_DIR=$(pwd)
-          echo "Original directory: $ORIGINAL_DIR"
-          
-          # Определяем путь к Image в зависимости от версии Android
-          if [ "${{ inputs.android_version }}" == "android12" ] || [ "${{ inputs.android_version }}" == "android13" ]; then
-            IMAGE_PATH="out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist"
-          else
-            IMAGE_PATH="bazel-bin/common/kernel_aarch64"
+          if [ "${{ inputs.kernel_version }}" != "1.1" ]; then
+            echo "Patching Image file..."
+            cd "$CONFIG/out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist"
+            curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU_patch/refs/heads/main/kpm/patch_linux" -o patch
+            chmod 777 patch
+            ./patch
+            rm -rf Image
+            mv oImage Image
+            cd ../../../..
           fi
-          
-          echo "Image path: $IMAGE_PATH"
-          
-          # Проверяем существование Image файла
-          if [ ! -f "$IMAGE_PATH/Image" ]; then
-            echo "Error: Image file not found at $IMAGE_PATH/Image"
-            echo "Contents of $IMAGE_PATH:"
-            ls -la "$IMAGE_PATH/" || echo "Directory not found"
-            exit 1
+
+      - name: Patch Image File A14 & A15
+        if: ${{ inputs.android_version == 'android14' || inputs.android_version == 'android15' }}
+        run: |
+          if [ "${{ inputs.kernel_version }}" != "1.1" ]; then
+            echo "Patching Image file..."
+            cd "$CONFIG/bazel-bin/common/kernel_aarch64/"
+            curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU_patch/refs/heads/main/kpm/patch_linux" -o patch
+            chmod 777 patch
+            ./patch
+            rm -rf Image
+            mv oImage Image
+            cd ../../..
           fi
-          
-          # Проверяем существование KPM директории и файлов
-          KPM_DIR="../kernel_patches"
-          if [ ! -d "$KPM_DIR" ]; then
-            echo "Error: KPM directory not found at $KPM_DIR"
-            echo "Checking for alternative paths..."
-            
-            # Проверяем другие возможные пути
-            if [ -d "../SukiSU_patch/kpm" ]; then
-              KPM_DIR="../SukiSU_patch/kpm"
-              echo "Found KPM directory at $KPM_DIR"
-            elif [ -d "../SukiSU-Ultra_SukiSU_patch/kpm" ]; then
-              KPM_DIR="../SukiSU-Ultra_SukiSU_patch/kpm"
-              echo "Found KPM directory at $KPM_DIR"
-            else
-              echo "Error: Cannot find KPM directory!"
-              echo "Available directories:"
-              ls -la ../
-              exit 1
-            fi
-          fi
-          
-          # Проверяем существование файла patch_linux
-          if [ ! -f "$KPM_DIR/patch_linux" ]; then
-            echo "Error: patch_linux not found in $KPM_DIR"
-            echo "Contents of $KPM_DIR:"
-            ls -la "$KPM_DIR"
-            exit 1
-          fi
-          
-          # Копируем оригинальный Image в kpm директорию
-          echo "Copying Image to KPM directory..."
-          cp "$IMAGE_PATH/Image" "$KPM_DIR/"
-          
-          # Переходим в kpm директорию и применяем патч
-          echo "Applying KPM patch..."
-          cd "$KPM_DIR"
-          chmod +x ./patch_linux
-          ./patch_linux Image
-          
-          # Проверяем что патч создал oImage
-          if [ ! -f "oImage" ]; then
-            echo "Error: oImage not found after patching!"
-            exit 1
-          fi
-          
-          # Переименовываем patched image
-          echo "Renaming patched image..."
-          mv oImage Image
-          
-          # Создаем сжатые версии
-          echo "Creating compressed versions..."
-          gzip -n -k -f -9 -c ./Image > ./Image.gz
-          lz4 -9 -k -f -c ./Image > ./Image.lz4
-          
-          # Возвращаем все версии обратно в оригинальную директорию
-          echo "Moving patched images back..."
-          
-          # Создаем целевую директорию если она не существует
-          TARGET_DIR="$ORIGINAL_DIR/$IMAGE_PATH"
-          if [ ! -d "$TARGET_DIR" ]; then
-            echo "Creating target directory: $TARGET_DIR"
-            mkdir -p "$TARGET_DIR"
-          fi
-          
-          # Проверяем что целевая директория существует
-          if [ ! -d "$TARGET_DIR" ]; then
-            echo "Error: Cannot create or access target directory: $TARGET_DIR"
-            exit 1
-          fi
-          
-          # Перемещаем файлы обратно
-          echo "Moving Image to $TARGET_DIR/"
-          mv Image "$TARGET_DIR/" || {
-            echo "Error: Failed to move Image"
-            exit 1
-          }
-          
-          echo "Moving Image.gz to $TARGET_DIR/"
-          mv Image.gz "$TARGET_DIR/" || {
-            echo "Error: Failed to move Image.gz"
-            exit 1
-          }
-          
-          echo "Moving Image.lz4 to $TARGET_DIR/"
-          mv Image.lz4 "$TARGET_DIR/" || {
-            echo "Error: Failed to move Image.lz4"
-            exit 1
-          }
-          
-          # Возвращаемся в исходную директорию
-          cd "$ORIGINAL_DIR"
-          
-          echo "Manual KPM patch completed successfully!"
-          echo "Patched files are now in: $TARGET_DIR"
 
       - name: Create Bootimgs Folder and Copy Images
         if: ${{ inputs.android_version == 'android12' || inputs.android_version == 'android13' }}
@@ -536,7 +469,7 @@ jobs:
           echo "Creating zip files for all formats..."
           cd ./AnyKernel3
 
-           Create and upload zip for each format
+          # Create and upload zip for each format
           ZIP_NAME="${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.os_patch_level }}-AnyKernel3.zip"
           echo "Creating zip file: $ZIP_NAME..."
           mv ../Image ./Image
@@ -634,5 +567,4 @@ jobs:
           name: kernel-${{ env.CONFIG }}
           path: |
             *.zip
-            *.img.gz
-            *Image*
+            *.img
