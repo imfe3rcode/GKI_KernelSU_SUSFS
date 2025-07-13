@@ -380,7 +380,7 @@ jobs:
             fi
             ccache --show-stats
 
-- name: Manual KPM Patch (After Build)
+      - name: Manual KPM Patch (After Build)
         run: |
           echo "Applying manual KPM patch after build..."
           cd "$CONFIG"
