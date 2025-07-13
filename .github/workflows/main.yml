@@ -1,4 +1,4 @@
-name: Build and Release GKI Kernels
+name: Build and Release SukiSU Kernels
 
 permissions:
   contents: write # Allow writing to repository contents (for pushing tags)
@@ -157,7 +157,7 @@ jobs:
     env:
       REPO_OWNER: TheFloresto
       REPO_NAME: GKI_KernelSU_SUSFS
-      GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
       # Get Date
@@ -168,7 +168,7 @@ jobs:
 
       # Checkout the code
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Determine the branch for KernelSU-${{ inputs.kernelsu_variant }}
         if: ${{ inputs.kernelsu_branch == 'Dev' || inputs.kernelsu_variant == 'SukiSU' }}
@@ -207,7 +207,7 @@ jobs:
             KSU_URL="https://github.com/$REPO_URL2/releases/tag/$TAG"
 
           elif [[ "${{ inputs.kernelsu_branch }}" == "Dev" || "${{ inputs.kernelsu_variant }}" == "SukiSU" ]]; then
-            # Fetch the latest commit from "next" branch
+            # Fetch the latest commit from "main" branch for SukiSU
             COMMIT_HASH=$(git ls-remote $REPO_URL refs/heads/$KSU_BRANCH | awk '{ print $1 }')
             if [[ -z "$COMMIT_HASH" ]]; then
               echo "Error: Could not fetch latest commit for Dev" >&2
@@ -223,7 +223,7 @@ jobs:
               KSU_REF=$TAG
               KSU_URL="https://github.com/$REPO_URL2/releases/tag/$TAG"
             else
-              echo "Error: Specified tag '$TAG' not found in KernelSU-Next" >&2
+              echo "Error: Specified tag '$TAG' not found in SukiSU-Ultra" >&2
               exit 1
             fi
           fi
@@ -271,8 +271,8 @@ jobs:
 
           Features:
             -> ${{ inputs.kernelsu_variant }} (${{ inputs.kernelsu_branch }})
-            -> Wild KSU Kernels & Others
-            -> Multi Manager Support for Wild Kernels & Next Kernels (Not Recommended)
+            -> SukiSU Ultra Kernels
+            -> Multi Manager Support (Not Recommended)
             -> SUSFS ඞ v1.5.9
             -> Scope-Minimized syscall hooks
             -> Magic Mount Support
@@ -283,7 +283,7 @@ jobs:
             -> LTO = thin
             
           Notes:
-            -> Wild KSU & KernelSU-Next, SUS SU Mode 2 will show as disabled or not compatible due to non-kprobe hooks and is not needed anymore!
+            -> SukiSU Ultra, SUS SU Mode 2 will show as disabled or not compatible due to non-kprobe hooks and is not needed anymore!
             -> Official Kernel Flasher is broken with latest susfs, try https://github.com/fatalcoder524/KernelFlasher/ or https://github.com/libxzr/HorizonKernelFlasher!
 
           Usage: 
@@ -294,7 +294,7 @@ jobs:
             -> https://github.com/sidex15/ksu_module_susfs
         
           Managers:
-            -> SukiSU: https://github.com/SukiSU-Ultra/SukiSU-Ultra / https://t.me/Sukiksu
+            -> SukiSU Ultra: https://github.com/SukiSU-Ultra/SukiSU-Ultra / https://t.me/Sukiksu
 
           > [!NOTE]  
           > SUS SU Mode 2 will show as disabled or not compatible due to non-kprobe hooks and is not needed anymore! 
@@ -305,7 +305,7 @@ jobs:
           <details>
           <summary>Commit Hashes and Links</summary>
 
-          - KernelSU:
+          - SukiSU Ultra:
             - ${{ inputs.kernelsu_variant }}-${{ inputs.kernelsu_branch }}: [${{ env.KSU_REF }}](${{ env.KSU_URL }})
           - SUSFS4KSU:
             - gki-android12-5.10: [${{ env.COMMIT_HASH_gki_android12_5_10 }}](${{ env.COMMIT_URL_gki_android12_5_10 }})
@@ -323,19 +323,17 @@ jobs:
           cat release_notes.md >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
 
-      # Get the Latest Tag from GitHub
+      # Get the Latest Tag from GitHub and Create New Tag
       - name: Generate and Create New Tag
-        env:
-          GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
         run: |
-          # Fetch the latest tag from GitHub (this is the latest tag based on the GitHub API)
+          # Fetch the latest tag from GitHub
           LATEST_TAG=$(gh api repos/$REPO_OWNER/$REPO_NAME/tags --jq '.[0].name')
           if [ -z "$LATEST_TAG" ]; then
             LATEST_TAG="v1.5.9-r0"
           fi
 
-          # NEW_TAG=$(echo "$LATEST_TAG" | awk -F'-r' '{suffix=$2; if (!suffix) suffix=0; suffix++; printf "%s-r%d", $1, suffix}')
-          NEW_TAG=${{ env.currentdate }}
+          # Generate incremental tag like in the second script
+          NEW_TAG=$(echo "$LATEST_TAG" | awk -F'-r' '{suffix=$2; if (!suffix) suffix=0; suffix++; printf "%s-r%d", $1, suffix}')
 
           # Output the new tag to be used
           echo "New tag: $NEW_TAG"
@@ -345,9 +343,9 @@ jobs:
 
           # Create the tag in the repository
           git tag $NEW_TAG
-          git push --tags
+          git push origin $NEW_TAG
 
-      # Download Artifacts for A12 (Only if A12 Build is successful or input is true or empty)
+      # Download Artifacts
       - name: Download Artifacts
         uses: actions/download-artifact@v4
         with:
@@ -355,12 +353,12 @@ jobs:
 
       # Create GitHub Release and upload files if make_release is true
       - name: Create GitHub Release
-        uses: actions/create-release@v1
+        uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ env.NEW_TAG }} # Use the generated tag for the release
-          prerelease: true # Mark the release as a pre-release
-          release_name: ${{ env.NEW_TAG }} # Use the generated tag as release name
-          body: ${{ env.RELEASE_NOTES }} # Pass the RELEASE_NOTES to the action
+          tag_name: ${{ env.NEW_TAG }}
+          prerelease: true
+          name: ${{ env.NEW_TAG }}
+          body: ${{ env.RELEASE_NOTES }}
 
       - name: Upload Release Assets Dynamically
         run: |
@@ -388,7 +386,7 @@ jobs:
             -F chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
             -F message_thread_id="${{ secrets.TELEGRAM_MESSAGE_THREAD_ID }}" \
             -F text="
-            🌽 *New Stable Kernel Release Uploaded*  
+            🌽 *New SukiSU Kernel Release Uploaded*  
             📦 *Repository:* [${{ github.repository }}](https://github.com/${{ github.repository }})  
             🗂️ *Branch:* ${{ github.ref_name }}  
             ✏️ *Commit:* [${{ github.sha }}](https://github.com/${{ github.repository }}/commit/${{ github.sha }})  
