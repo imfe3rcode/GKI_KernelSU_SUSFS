@@ -300,13 +300,6 @@ jobs:
             cp -v ../../kernel_patches/wild/syscall_hooks.patch ./
             patch -p1 -F 3 < syscall_hooks.patch
           fi
-          
-      - name: Remove exports
-        run: |
-          echo "Removing exports..."
-          sed -i '/^[[:space:]]*"protected_exports_list"[[:space:]]*:[[:space:]]*"android\/abi_gki_protected_exports_aarch64",$/d' ./BUILD.bazel
-          rm -v android/abi_gki_protected_exports_*
-          cd ..
 
       - name: Add Configuration Settings
         run: |
@@ -390,15 +383,17 @@ jobs:
           fi
 
       - name: Build
-        run : |
+        run: |
           set -e
           set -x
           cd "$CONFIG"
-          echo "Building the kernel..."
+          echo "Fetching .bazelrc with sm8635-polly configuration..."
+          curl -LSs "https://raw.githubusercontent.com/TheFloresto/kernel_patches/main/next/.bazelrc" -o .bazelrc || exit 1
+          echo "Building the kernel with sm8635-polly configuration..."
           if [ -f "build/build.sh" ]; then
-            LTO=full BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh CC="/usr/bin/ccache clang" || exit 1
+            LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh CC="/usr/bin/ccache clang" || exit 1
           else
-           tools/bazel build --sandbox_writable_path=$HOME/.ccache --disk_cache=/home/runner/.cache/bazel --config=fast --lto=full //common:kernel_aarch64_dist || exit 1
+            tools/bazel build --config=sm8635-polly --lto=thin //common:kernel_aarch64_dist || exit 1
           fi
           ccache --show-stats
 
