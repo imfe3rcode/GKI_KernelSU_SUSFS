@@ -388,21 +388,27 @@ jobs:
           set -x
           cd "$CONFIG"
 
-          echo "Fetching .bazelrc with sm8635-polly configuration..."
-          curl -LSs https://raw.githubusercontent.com/TheFloresto/kernel_patches/main/next/sm8635-polly.bazelrc -o .bazelrc || exit 1
+          echo "Checking kernel version..."
+          if [[ "$CONFIG" != *"6.6"* ]]; then
+            echo "Fetching .bazelrc with sm8635-polly configuration..."
+            curl -LSs https://raw.githubusercontent.com/TheFloresto/kernel_patches/main/next/sm8635-polly.bazelrc -o .bazelrc || exit 1
+            EXTRA_BAZEL_FLAGS="--config=sm8635-polly"
+          else
+            echo "Detected kernel 6.6 – skipping Polly .bazelrc"
+            EXTRA_BAZEL_FLAGS=""
+          fi
 
-          echo "Building the kernel with sm8635-polly configuration..."
+          echo "Building the kernel with correct configuration..."
           if [ -f "build/build.sh" ]; then
-            echo "Using build.sh path with LTO=thin..."
-            LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh CC="/usr/bin/ccache clang" || exit 1
+            LTO=full BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh CC="/usr/bin/ccache clang" || exit 1
           else
             echo "Using Bazel build path with full optimizations..."
             tools/bazel build \
-              --sandbox_writable_path=$HOME/.ccache \
-              --disk_cache=$HOME/.cache/bazel \
-              --config=sm8635-polly \
+              --sandbox_writable_path=/home/runner/.ccache \
+              --disk_cache=/home/runner/.cache/bazel \
               --config=fast \
-              --lto=thin \
+              --lto=full \
+              $EXTRA_BAZEL_FLAGS \
               //common:kernel_aarch64_dist || exit 1
           fi
 
