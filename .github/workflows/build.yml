@@ -389,13 +389,14 @@ jobs:
           cd "$CONFIG"
 
           echo "Checking kernel version..."
-          if [[ "$CONFIG" != *"6.6"* ]]; then
-            echo "Fetching .bazelrc with sm8635-polly configuration..."
+          if [[ "$CONFIG" == *"6.6"* ]]; then
+            echo "Fetching .bazelrc with sm8635-polly-66 configuration (cortex-a76)..."
+            curl -LSs https://raw.githubusercontent.com/TheFloresto/kernel_patches/main/next/sm8635-polly-66.bazelrc -o .bazelrc || exit 1
+            EXTRA_BAZEL_FLAGS="--config=sm8635-polly-66"
+          else
+            echo "Fetching .bazelrc with sm8635-polly configuration (cortex-a720)..."
             curl -LSs https://raw.githubusercontent.com/TheFloresto/kernel_patches/main/next/sm8635-polly.bazelrc -o .bazelrc || exit 1
             EXTRA_BAZEL_FLAGS="--config=sm8635-polly"
-          else
-            echo "Detected kernel 6.6 – skipping Polly .bazelrc"
-            EXTRA_BAZEL_FLAGS=""
           fi
 
           echo "Building the kernel with correct configuration..."
