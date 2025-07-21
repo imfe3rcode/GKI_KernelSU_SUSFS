@@ -396,7 +396,7 @@ jobs:
               perl -pi -e 's/-maybe-dirty//g' ./build/kernel/kleaf/impl/stamp.bzl
               
               # Remove check_defconfig
-              perl -pi -e '2s/check_defconfig//' ./common/build.config.gki
+              sed -i '2s/check_defconfig//' ./common/build.config.gki
               
               # Set Kernel Name
               echo "CONFIG_LOCALVERSION=\"-@NoFloresto+@mr_vokintos\"" >> ./common/arch/arm64/configs/gki_defconfig
