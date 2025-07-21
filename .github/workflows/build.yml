@@ -56,12 +56,16 @@ jobs:
 
       - name: Setup SWAP
         run: |
-          sudo swapoff -a
-          sudo fallocate -l 18G /swapfile
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
-          free -h
+         sudo swapoff -a
+         sudo fallocate -l 20G /swapfile
+         sudo chmod 600 /swapfile
+         sudo mkswap /swapfile
+         sudo swapon -p 1 /swapfile
+         echo 'vm.swappiness=1' | sudo tee -a /etc/sysctl.conf
+         echo 'vm.vfs_cache_pressure=50' | sudo tee -a /etc/sysctl.conf
+         echo 'vm.overcommit_memory=1' | sudo tee -a /etc/sysctl.conf
+         sudo sysctl -p
+         free -h
           
       - name: Set CONFIG Environment Variable
         run: |
@@ -80,7 +84,7 @@ jobs:
         run: |
           mkdir -p ~/.ccache ~/.cache/bazel
           ccache --version
-          ccache --max-size=2G
+          ccache --max-size=4G
           ccache --set-config=compression=true
           echo "CCACHE_DIR=$HOME/.ccache" >> $GITHUB_ENV
 
