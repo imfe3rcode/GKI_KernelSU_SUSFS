@@ -83,9 +83,14 @@ jobs:
       - name: Install ccache
         run: sudo apt update && sudo apt install -y ccache
 
-      - name: Set up ccache
+      - name: Set up ccache with optimizations
         run: |
-          mkdir -p ~/.ccache ~/.cache/bazel
+          # Создание директории ccache для конкретной версии
+          echo "CCACHE_DIR=$HOME/.ccache_${{ inputs.kernel_version }}.${{ inputs.sub_level }}" >> $GITHUB_ENV
+          mkdir -p $HOME/.ccache_${{ inputs.kernel_version }}.${{ inputs.sub_level }}
+          mkdir -p ~/.cache/bazel
+          
+          # Оптимизированная конфигурация ccache
           ccache --version
           ccache --max-size=5G
           ccache --set-config=compression=true
@@ -93,9 +98,6 @@ jobs:
           ccache --set-config=sloppiness=file_macro,locale,time_macros,include_file_mtime,include_file_ctime
           ccache --set-config=hash_dir=false
           ccache --set-config=hard_link=true
-          echo "CCACHE_DIR=$HOME/.ccache" >> $GITHUB_ENV
-
-
 
       - name: Download toolchain
         run: |
@@ -418,10 +420,19 @@ jobs:
           fi
 
       - name: Build
-        run : |
+        run: |
           set -e
           set -x
           cd "$CONFIG"
+          
+          # Оптимизация переменных окружения для ccache
+          export PATH="/usr/bin/ccache:$PATH"
+          export USE_CCACHE=1
+          export CCACHE_EXEC=/usr/bin/ccache
+          export CCACHE_DIR="${{ env.CCACHE_DIR }}"
+          
+          # Создаем символическую ссылку для Bazel
+          ln -sf "${{ env.CCACHE_DIR }}" $HOME/.ccache
 
           echo "Checking kernel version..."
           if [[ "$CONFIG" == *"6.6"* ]]; then
@@ -436,9 +447,42 @@ jobs:
 
           echo "Building the kernel..."
           if [ -f "build/build.sh" ]; then
-            LTO=full BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh CC="/usr/bin/ccache clang" || exit 1
+            LTO=full BUILD_CONFIG=common/build.config.gki.aarch64 \
+              KCFLAGS="-O3 -pipe -Wno-maybe-uninitialized" \
+              build/build.sh \
+              CC="/usr/bin/ccache clang" \
+              HOSTCC="gcc" \
+              HOSTLD="ld" \
+              LD=ld.lld \
+              LLVM=1 \
+              -j$(nproc --all) || exit 1
           else
-            tools/bazel build --sandbox_writable_path=/home/runner/.ccache --disk_cache=~/.cache/bazel $([[ "${{ inputs.kernel_version }}" != "6.6" ]] && echo "--experimental_multi_threaded_digest") --config=fast --lto=full $EXTRA_BAZEL_FLAGS  //common:kernel_aarch64_dist
+            # Настройка переменных окружения для Bazel
+            export HOSTCC=gcc
+            export HOSTLD=ld
+            export HOSTCXX=g++
+            
+            tools/bazel build \
+              --sandbox_writable_path=${{ env.CCACHE_DIR }} \
+              --sandbox_writable_path=$HOME/.ccache \
+              --sandbox_writable_path=$HOME/.cache/bazel \
+              --disk_cache=$HOME/.cache/bazel \
+              --action_env=HOSTCC=gcc \
+              --action_env=HOSTLD=ld \
+              --action_env=HOSTCXX=g++ \
+              --host_action_env=HOSTCC=gcc \
+              --host_action_env=HOSTLD=ld \
+              --host_action_env=HOSTCXX=g++ \
+              --jobs=$(nproc --all) \
+              --local_cpu_resources=$(nproc --all) \
+              --config=fast \
+              --lto=full \
+              --copt=-O3 \
+              --copt=-pipe \
+              --copt=-Wno-maybe-uninitialized \
+              $([[ "${{ inputs.kernel_version }}" != "6.6" ]] && echo "--experimental_multi_threaded_digest") \
+              $EXTRA_BAZEL_FLAGS \
+              //common:kernel_aarch64_dist
           fi
           ccache --show-stats
 
