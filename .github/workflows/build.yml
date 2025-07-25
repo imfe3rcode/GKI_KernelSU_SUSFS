@@ -92,7 +92,7 @@ jobs:
 
       - name: Install and configure ccache
         run: |
-          sudo apt update && sudo apt install -y ccache
+          sudo apt update && sudo apt install -y ccache clang
           
           # Создать директории
           mkdir -p "$CCACHE_DIR" ~/.cache/bazel
