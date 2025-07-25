@@ -39,6 +39,8 @@ jobs:
       CCACHE_COMPILERCHECK: "%compiler% -dumpmachine; %compiler% -dumpversion"
       CCACHE_NOHASHDIR: "true"
       CCACHE_HARDLINK: "true"
+      CCACHE_DIR: "$HOME/.ccache"
+      CCACHE_MAXSIZE: "3G"
 
     steps:
       - name: Maximize Build Space
@@ -53,6 +55,17 @@ jobs:
           remove-swapfile: 'true'        # Frees ~4 GB
           remove-cached-tools: 'false'   # Avoid unless confirmed safe
           verbose: 'true'                # Enable detailed logging
+
+      - name: Restore ccache cache
+        uses: actions/cache@v4
+        id: ccache-restore
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}-${{ runner.os }}-${{ github.run_number }}
+          restore-keys: |
+            ccache-gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}-${{ runner.os }}-
+            ccache-gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}-
+            ccache-gki-
 
       - name: Setup SWAP
         run: |
@@ -77,16 +90,30 @@ jobs:
 
           echo "CONFIG set to: $CONFIG"
 
-      - name: Install ccache
-        run: sudo apt update && sudo apt install -y ccache
-
-      - name: Set up ccache
+      - name: Install and configure ccache
         run: |
-          mkdir -p ~/.ccaches ~/.cache/bazel
+          sudo apt update && sudo apt install -y ccache
+          
+          # Создать директории
+          mkdir -p "$CCACHE_DIR" ~/.cache/bazel
+          
+          # Настроить ccache с оптимальными параметрами
           ccache --version
-          ccache --max-size=2G
+          ccache --max-size="$CCACHE_MAXSIZE"
           ccache --set-config=compression=true
-          echo "CCACHE_DIR=$HOME/.ccache" >> $GITHUB_ENV
+          ccache --set-config=compression_level=6
+          ccache --set-config=max_files=20000
+          ccache --set-config=sloppiness=file_macro,time_macros,include_file_mtime,include_file_ctime
+          
+          echo "🔧 Начальный статус ccache:"
+          ccache -s
+          
+          if [ "${{ steps.ccache-restore.outputs.cache-hit }}" == 'true' ]; then
+            echo "✅ Кеш ccache восстановлен успешно"
+            ccache -sv
+          else
+            echo "ℹ️ Кеш ccache не найден, будет создан новый"
+          fi
 
       - name: Download toolchain
         run: |
@@ -409,10 +436,29 @@ jobs:
           fi
 
       - name: Build
-        run : |
+        run: |
           set -e
           set -x
           cd "$CONFIG"
+          
+          # Запустить очистку в фоне
+          echo "🧹 Запуск фоновой очистки места..."
+          (
+            sudo rm -rf /usr/share/dotnet &
+            sudo rm -rf /usr/local/lib/android &
+            sudo rm -rf /opt/ghc &
+            sudo rm -rf /opt/hostedtoolcache/CodeQL &
+            wait
+            echo "✅ Фоновая очистка завершена"
+          ) &
+          CLEANUP_PID=$!
+
+          # Настройка ccache для сборки
+          export PATH="/usr/lib/ccache:$PATH"
+          export CCACHE_COMPILERCHECK="%compiler% -dumpmachine; %compiler% -dumpversion"
+          export CCACHE_NOHASHDIR="true"
+          export CCACHE_HARDLINK="true"
+          export CCACHE_DIR="$HOME/.ccache"
 
           echo "Checking kernel version..."
           if [[ "$CONFIG" == *"6.6"* ]]; then
@@ -427,11 +473,23 @@ jobs:
 
           echo "Building the kernel..."
           if [ -f "build/build.sh" ]; then
-            LTO=full BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh CC="/usr/bin/ccache clang" || exit 1
+            LTO=full BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh CC="ccache clang" || exit 1
           else
-            tools/bazel build --sandbox_writable_path=/home/runner/.ccaches --disk_cache=~/.cache/bazel $([[ "${{ inputs.kernel_version }}" != "6.6" ]] && echo "--experimental_multi_threaded_digest") --config=fast --lto=full $EXTRA_BAZEL_FLAGS  //common:kernel_aarch64_dist
+            tools/bazel build --sandbox_writable_path="$HOME/.ccache" --disk_cache="$HOME/.cache/bazel" $([[ "${{ inputs.kernel_version }}" != "6.6" ]] && echo "--experimental_multi_threaded_digest") --config=fast --lto=full $EXTRA_BAZEL_FLAGS  //common:kernel_aarch64_dist
           fi
-          ccache --show-stats
+          
+          # Дождаться завершения очистки
+          wait $CLEANUP_PID || true
+          
+          echo "📊 Финальная статистика ccache:"
+          ccache -s
+
+      - name: Show final build statistics
+        run: |
+          echo "📊 Финальная статистика ccache:"
+          ccache -s
+          echo "💾 Свободное место после сборки:"
+          df -h
 
       - name: Create Bootimgs Folder and Copy Images for Android 12/13
         if: ${{ inputs.android_version == 'android12' || inputs.android_version == 'android13' }}
