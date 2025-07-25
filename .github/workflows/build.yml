@@ -500,6 +500,12 @@ jobs:
             # Оптимизация для новых версий (Bazel)
             mkdir -p $HOME/.cache/bazel
             mkdir -p $HOME/.ccache
+            
+            # Настройка переменных окружения для Bazel
+            export HOSTCC=gcc
+            export HOSTLD=ld
+            export HOSTCXX=g++
+            
             tools/bazel build \
               --sandbox_writable_path=$HOME/.ccache \
               --sandbox_writable_path=${{ env.CCACHE_DIR }} \
@@ -508,6 +514,12 @@ jobs:
               --remote_cache_header=x-build-cache-node=bazel \
               --jobs=$(nproc --all) \
               --local_cpu_resources=$(nproc --all) \
+              --action_env=HOSTCC=gcc \
+              --action_env=HOSTLD=ld \
+              --action_env=HOSTCXX=g++ \
+              --host_action_env=HOSTCC=gcc \
+              --host_action_env=HOSTLD=ld \
+              --host_action_env=HOSTCXX=g++ \
               --config=fast \
               --config=stamp \
               --lto=full \
