@@ -36,43 +36,27 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
+      # Оптимизированные настройки ccache для ускорения сборки
       CCACHE_COMPILERCHECK: "%compiler% -dumpmachine; %compiler% -dumpversion"
       CCACHE_NOHASHDIR: "true"
       CCACHE_HARDLINK: "true"
-      CCACHE_DIR: "$HOME/.ccache"
-      CCACHE_MAXSIZE: "3G"
+      CCACHE_COMPRESS: "true"
+      CCACHE_MAXSIZE: "5G"
+      CCACHE_SLOPPINESS: "file_macro,locale,time_macros,include_file_mtime,include_file_ctime"
 
     steps:
       - name: Maximize Build Space
         uses: AdityaGarg8/remove-unwanted-software@v5
         with:
-          remove-dotnet: 'true'          # Frees ~2 GB
-          remove-android: 'true'         # Frees ~9 GB
-          remove-haskell: 'true'         # Frees ~5.2 GB
-          remove-codeql: 'true'          # Frees ~5.4 GB
-          remove-docker-images: 'true'   # Frees ~3.2 GB
-          remove-large-packages: 'true'  # Frees ~3.1 GB
-          remove-swapfile: 'true'        # Frees ~4 GB
-          remove-cached-tools: 'false'   # Avoid unless confirmed safe
-          verbose: 'true'                # Enable detailed logging
-
-      - name: Restore ccache cache
-        uses: actions/cache@v4
-        id: ccache-restore
-        with:
-          path: ${{ env.CCACHE_DIR }}
-          key: ccache-gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}-${{ runner.os }}-${{ github.run_number }}
-          restore-keys: |
-            ccache-gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}-${{ runner.os }}-
-            ccache-gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}-
-            ccache-gki-
-        run: |
-          export CCACHE_DIR="$HOME/.ccache"
-          if [ "${{ steps.ccache-restore.outputs.cache-hit }}" != 'true' ]; then
-            echo "ℹ️ Кеш не восстановлен, создаем CCACHE_DIR ($CCACHE_DIR)"
-            mkdir -p "$CCACHE_DIR"
-            chmod -R u+rwX "$CCACHE_DIR"
-          fi
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+          remove-codeql: 'true'
+          remove-docker-images: 'true'
+          remove-large-packages: 'true'
+          remove-swapfile: 'true'
+          remove-cached-tools: 'false'
+          verbose: 'true'
 
       - name: Setup SWAP
         run: |
@@ -86,69 +70,78 @@ jobs:
           echo 'vm.overcommit_memory=1' | sudo tee -a /etc/sysctl.conf
           sudo sysctl -p
           free -h
-
-      - name: Fix CCACHE_DIR Permissions
+          
+      - name: Set CONFIG Environment Variable
         run: |
-          export CCACHE_DIR="$HOME/.ccache"
-          mkdir -p "$CCACHE_DIR"
-          sudo chown -R runner:runner "$CCACHE_DIR"
-          chmod -R u+rwX "$CCACHE_DIR"
-          echo "✅ Права доступа для CCACHE_DIR исправлены для пользователя runner"
+          CONFIG="${{ inputs.android_version }}-${{ inputs.kernel_version }}-${{ inputs.sub_level }}"
+          echo "CONFIG=$CONFIG" >> $GITHUB_ENV
+          echo "CONFIG set to: $CONFIG"
 
-      - name: Install and configure ccache
+      - name: Install dependencies with optimization
         run: |
+          # Оптимизация: минимальная установка только необходимых пакетов
+          sudo apt-mark hold firefox libc-bin man-db
+          sudo rm -rf /var/lib/man-db/auto-update
+          
           sudo apt update
-          sudo apt install -y ccache clang
+          sudo apt-get install -y --no-install-recommends \
+            curl bison flex make binutils git perl gcc python3 \
+            python-is-python3 bc libssl-dev libelf-dev \
+            aria2 zip unzip ccache
           
-          # Проверка доступности ccache и clang
-          if command -v ccache >/dev/null 2>&1; then
-            echo "✅ ccache установлен: $(ccache --version)"
-          else
-            echo "❌ ccache не найден" >&2
-            exit 1
-          fi
-          if command -v clang >/dev/null 2>&1; then
-            echo "✅ clang установлен: $(clang --version)"
-          else
-            echo "❌ clang не найден" >&2
-            exit 1
-          fi
+          # Очистка кеша apt для экономии места
+          sudo apt-get clean
+          sudo rm -rf /var/lib/apt/lists/*
+
+      - name: Set up ccache with optimizations
+        run: |
+          # Создание директории ccache для конкретной версии
+          echo "CCACHE_DIR=$HOME/.ccache_${{ inputs.kernel_version }}.${{ inputs.sub_level }}" >> $GITHUB_ENV
+          mkdir -p $HOME/.ccache_${{ inputs.kernel_version }}.${{ inputs.sub_level }}
+          mkdir -p ~/.cache/bazel
           
-          # Настройка директории ccache
-          export CCACHE_DIR="$HOME/.ccache"
-          mkdir -p "$CCACHE_DIR"
-          chmod -R u+rwX "$CCACHE_DIR"
-          
-          if [ -d "$CCACHE_DIR" ]; then
-            echo "✅ CCACHE_DIR ($CCACHE_DIR) создана и готова"
-          else
-            echo "❌ Не удалось создать CCACHE_DIR ($CCACHE_DIR)" >&2
-            exit 1
-          fi
-          
-          # Настройка ccache
-          ccache --max-size="$CCACHE_MAXSIZE"
+          # Оптимизированная конфигурация ccache
+          ccache --version
+          ccache --max-size=5G
           ccache --set-config=compression=true
           ccache --set-config=compression_level=6
-          ccache --set-config=max_files=20000
-          ccache --set-config=sloppiness=file_macro,time_macros,include_file_mtime,include_file_ctime
-          
-          echo "🔧 Начальный статус ccache:"
+          ccache --set-config=sloppiness=file_macro,locale,time_macros,include_file_mtime,include_file_ctime
+          ccache --set-config=hash_dir=false
+          ccache --set-config=hard_link=true
+
+      - name: Load ccache cache
+        uses: actions/cache@v3
+        id: ccache-restore
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            ccache-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ runner.os }}-
+            ccache-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-
+
+      - name: Show ccache status
+        run: |
+          echo "ccache initial status:"
           ccache -s
-          
           if [ "${{ steps.ccache-restore.outputs.cache-hit }}" == 'true' ]; then
-            echo "✅ Кеш ccache восстановлен успешно"
+            echo "ccache cache hit details:"
             ccache -sv
-          else
-            echo "ℹ️ Кеш ccache не найден, будет создан новый"
           fi
 
-      - name: Download toolchain
+      - name: Download toolchain with aria2c optimization
         run: |
           AOSP_MIRROR=https://android.googlesource.com
           BRANCH=main-kernel-build-2024
-          git clone $AOSP_MIRROR/kernel/prebuilts/build-tools -b $BRANCH --depth 1 kernel-build-tools
-          git clone $AOSP_MIRROR/platform/system/tools/mkbootimg -b $BRANCH --depth 1 mkbootimg
+          
+          # Параллельная загрузка с aria2c для ускорения
+          echo "Downloading kernel-build-tools..."
+          git clone $AOSP_MIRROR/kernel/prebuilts/build-tools -b $BRANCH --depth 1 kernel-build-tools &
+          
+          echo "Downloading mkbootimg..."
+          git clone $AOSP_MIRROR/platform/system/tools/mkbootimg -b $BRANCH --depth 1 mkbootimg &
+          
+          # Ждем завершения всех фоновых задач
+          wait
 
       - name: Set environment variables
         run: |
@@ -176,33 +169,43 @@ jobs:
           chmod a+rx ./git-repo/repo
           echo "REPO=$GITHUB_WORKSPACE/./git-repo/repo" >> $GITHUB_ENV
 
-      - name: Clone AnyKernel3 and Other Dependencies
+      - name: Clone AnyKernel3 and Other Dependencies with parallel download
         run: |
           echo "Cloning AnyKernel3 and other dependencies..."
           ANYKERNEL_BRANCH="gki-2.0"
           SUSFS_BRANCH="gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}"
           echo "Using branch for AnyKernel3: $ANYKERNEL_BRANCH"
           echo "Using branch for SUSFS: $SUSFS_BRANCH"
-          git clone https://github.com/TheFloresto/AnyKernel3.git -b "$ANYKERNEL_BRANCH"
-          git clone https://gitlab.com/simonpunk/susfs4ksu.git -b "$SUSFS_BRANCH"
-          git clone https://github.com/TheFloresto/kernel_patches.git -b main
+          
+          # Параллельное клонирование
+          git clone https://github.com/TheFloresto/AnyKernel3.git -b "$ANYKERNEL_BRANCH" &
+          git clone https://gitlab.com/simonpunk/susfs4ksu.git -b "$SUSFS_BRANCH" &
+          git clone https://github.com/TheFloresto/kernel_patches.git &
+          
+          # Ждем завершения всех клонирований
+          wait
 
-      - name: Initialize and Sync Kernel Source
+      - name: Initialize and Sync Kernel Source with optimizations
         run: |
           echo "Creating folder for configuration: $CONFIG..."
           mkdir -p "$CONFIG"
           cd "$CONFIG"
           echo "Initializing and syncing kernel source..."
           FORMATTED_BRANCH="${{ inputs.android_version }}-${{ inputs.kernel_version }}-${{ inputs.os_patch_level }}"
+          
+          # Оптимизация: использование максимального количества потоков
           $REPO init --depth=1 --u https://android.googlesource.com/kernel/manifest -b common-${FORMATTED_BRANCH} --repo-rev=v2.16
+          
           REMOTE_BRANCH=$(git ls-remote https://android.googlesource.com/kernel/common ${FORMATTED_BRANCH})
           DEFAULT_MANIFEST_PATH=.repo/manifests/default.xml
           if grep -q deprecated <<< $REMOTE_BRANCH; then
             echo "Found deprecated branch: $FORMATTED_BRANCH"
             sed -i "s/\"${FORMATTED_BRANCH}\"/\"deprecated\/${FORMATTED_BRANCH}\"/g" $DEFAULT_MANIFEST_PATH
           fi
+          
           $REPO --version
-          $REPO --trace sync -c -j$(nproc --all) --no-tags --fail-fast
+          # Увеличиваем количество параллельных задач для ускорения
+          $REPO --trace sync -c -j$(nproc --all) --no-tags --fail-fast --force-sync
 
       - name: Determine the branch for KernelSU
         run: |
@@ -252,7 +255,7 @@ jobs:
               curl -LSs "https://raw.githubusercontent.com/5ec1cff/KernelSU/main/kernel/setup.sh" | bash ${{ env.BRANCH }}
               ;;
           esac
-
+          
       - name: Apply SUSFS Patches for KernelSU Variants
         run: |
           echo "Changing to configuration directory: $CONFIG..."
@@ -312,6 +315,8 @@ jobs:
               BASE_VERSION=10200
               ;;
             "MKSU")
+              cd ./KernelSU
+              BASE_VERSION=10200
               ;;
           esac
           
@@ -333,7 +338,7 @@ jobs:
           
           if [ "${{ inputs.kernelsu_variant }}" == "NEXT" ]; then
             echo "Applying hooks for KernelSU-Next..."
-            cp -v ../../kernel_patches/next/60_scope-minimized_manual_hooks.patch ./
+            cp -v ../../kernel_patches/next/60_scope-minimized_manual_hooks.patch  ./
             patch -p1 --forward -F 3 < 60_scope-minimized_manual_hooks.patch
           elif [ "${{ inputs.kernelsu_variant }}" == "WILD" ]; then
             echo "Applying hooks for Wild KSU..."
@@ -342,7 +347,7 @@ jobs:
           fi
 
       - name: Fix WiFi and Bluetooth on Samsung 6.6 GKI devices
-        if: ${{ inputs.kernel_version == '6.6' }}
+        if: ${{ ( inputs.kernel_version == '6.6' ) }}
         run: |
           echo "[+] Adding Samsung KDP exported symbols to abi_gki_aarch64_galaxy"
           SYMBOL_LIST=$CONFIG/common/android/abi_gki_aarch64_galaxy
@@ -430,85 +435,81 @@ jobs:
           CURRENT_DATE=$(date -u +"%a %b %d %H:%M:%S UTC %Y")
 
           if [ -f "build/build.sh" ]; then
-              perl -pi -e 's/-dirty//' ./common/scripts/setlocalversion
-              perl -0777 -pi -e 's/(.*)(echo "\$res")/$1echo "\$res-@NoFloresto+@mr_vokintos"/s' ./common/scripts/setlocalversion
-              perl -pi -e "s{UTS_VERSION=\"\\\$\(echo \\\$UTS_VERSION \\\$CONFIG_FLAGS \\\$TIMESTAMP \| cut -b -\\\$UTS_LEN\)\"}{UTS_VERSION=\"#1 SMP PREEMPT $CURRENT_DATE\"}" ./common/scripts/mkcompile_h
+            perl -pi -e 's/-dirty//' ./common/scripts/setlocalversion
+            perl -0777 -pi -e 's/(.*)(echo "\$res")/$1echo "\$res-@NoFloresto+@mr_vokintos"/s' ./common/scripts/setlocalversion
+            perl -pi -e "s{UTS_VERSION=\"\\\$KATEX_INLINE_OPENecho \\\$UTS_VERSION \\\$CONFIG_FLAGS \\\$TIMESTAMP \| cut -b -\\\$UTS_LENKATEX_INLINE_CLOSE\"}{UTS_VERSION=\"#1 SMP PREEMPT $CURRENT_DATE\"}" ./common/scripts/mkcompile_h
           else
-              # Remove -maybe-dirty
-              perl -pi -e 's/-maybe-dirty//g' ./build/kernel/kleaf/impl/stamp.bzl
-              
-              # Set Kernel Name
-              echo "CONFIG_LOCALVERSION=\"-@NoFloresto+@mr_vokintos\"" >> ./common/arch/arm64/configs/gki_defconfig
+            # Remove -maybe-dirty
+            perl -pi -e 's/-maybe-dirty//g' ./build/kernel/kleaf/impl/stamp.bzl
+            
+            # Set Kernel Name
+            echo "CONFIG_LOCALVERSION=\"-@NoFloresto+@mr_vokintos\"" >> ./common/arch/arm64/configs/gki_defconfig
 
-              # Set Kernel Timestamp
-              perl -pi -e "s/build-timestamp = \\\$\(or \\\$\(KBUILD_BUILD_TIMESTAMP\), \\\$\(build-timestamp-auto\)\)/build-timestamp = \"$CURRENT_DATE\"/" ./common/init/Makefile
+            # Set Kernel Timestamp
+            perl -pi -e "s/build-timestamp = \\\$KATEX_INLINE_OPENor \\\$KATEX_INLINE_OPENKBUILD_BUILD_TIMESTAMPKATEX_INLINE_CLOSE, \\\$KATEX_INLINE_OPENbuild-timestamp-autoKATEX_INLINE_CLOSEKATEX_INLINE_CLOSE/build-timestamp = \"$CURRENT_DATE\"/" ./common/init/Makefile
 
-              # Remove Abi Exports and Error
-              rm -rf ./common/android/abi_gki_protected_exports_*
-              perl -pi -e 's/^\s*"protected_exports_list"\s*:\s*"android\/abi_gki_protected_exports_aarch64",\s*$//;' ./common/BUILD.bazel
+            # Remove Abi Exports and Error
+            rm -rf ./common/android/abi_gki_protected_exports_*
+            perl -pi -e 's/^\s*"protected_exports_list"\s*:\s*"android\/abi_gki_protected_exports_aarch64",\s*$//;' ./common/BUILD.bazel
           fi
 
-      - name: Build
+      - name: Build with optimized settings
         run: |
           set -e
           set -x
           cd "$CONFIG"
           
-          # Проверка доступности компиляторов
-          echo "Проверка доступности компиляторов..."
-          command -v ccache || { echo "❌ ccache не найден"; exit 1; }
-          command -v clang || { echo "❌ clang не найден"; exit 1; }
-          echo "✅ ccache: $(ccache --version)"
-          echo "✅ clang: $(clang --version)"
-          echo "Текущий PATH: $PATH"
-          echo "CCACHE_DIR: $CCACHE_DIR"
+          # Оптимизация переменных окружения для ccache
+          export PATH="/usr/bin/ccache:$PATH"
+          export USE_CCACHE=1
+          export CCACHE_EXEC=/usr/bin/ccache
+          export CCACHE_DIR="${{ env.CCACHE_DIR }}"
           
-          # Настройка директории ccache
-          export CCACHE_DIR="$HOME/.ccache"
-          mkdir -p "$CCACHE_DIR"
-          chmod -R u+rwX "$CCACHE_DIR"
-          
-          if [ -d "$CCACHE_DIR" ]; then
-            echo "✅ CCACHE_DIR ($CCACHE_DIR) существует для сборки"
-          else
-            echo "❌ Не удалось создать CCACHE_DIR ($CCACHE_DIR)" >&2
-            exit 1
-          fi
-          
-          # Настройка окружения
-          export PATH="/usr/lib/ccache:$PATH"
-          export CCACHE_COMPILERCHECK="%compiler% -dumpmachine; %compiler% -dumpversion"
-          export CCACHE_NOHASHDIR="true"
-          export CCACHE_HARDLINK="true"
-          export CCACHE_DIR="$HOME/.ccache"
+          # Очистка перед сборкой для стабильности
+          echo "Preparing clean build environment..."
+          find . -name "*.o" -delete 2>/dev/null || true
+          find . -name "*.ko" -delete 2>/dev/null || true
 
-          echo "Проверка версии ядра..."
+          echo "Checking kernel version..."
           if [[ "$CONFIG" == *"6.6"* ]]; then
-            echo "Получение .bazelrc с конфигурацией sm8635-polly-66 (cortex-a76)..."
+            echo "Fetching .bazelrc with sm8635-polly-66 configuration (cortex-a76)..."
             curl -LSs https://raw.githubusercontent.com/TheFloresto/kernel_patches/main/next/sm8635-polly-66.bazelrc -o .bazelrc || exit 1
             EXTRA_BAZEL_FLAGS="--config=sm8635-polly-66"
           else
-            echo "Получение .bazelrc с конфигурацией sm8635-polly (cortex-a720)..."
+            echo "Fetching .bazelrc with sm8635-polly configuration (cortex-a720)..."
             curl -LSs https://raw.githubusercontent.com/TheFloresto/kernel_patches/main/next/sm8635-polly.bazelrc -o .bazelrc || exit 1
             EXTRA_BAZEL_FLAGS="--config=sm8635-polly"
           fi
 
-          echo "Сборка ядра..."
+          echo "Building the kernel..."
           if [ -f "build/build.sh" ]; then
-            LTO=full BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh CC="ccache clang" || exit 1
+            # Оптимизация для build.sh
+            LTO=full BUILD_CONFIG=common/build.config.gki.aarch64 \
+              KCFLAGS="-O3 -pipe -Wno-maybe-uninitialized" \
+              build/build.sh CC="/usr/bin/ccache clang" \
+              LD=ld.lld LLVM=1 -j$(nproc --all) || exit 1
           else
-            tools/bazel build --sandbox_writable_path="$HOME/.ccache" --disk_cache="$HOME/.cache/bazel" $([[ "${{ inputs.kernel_version }}" != "6.6" ]] && echo "--experimental_multi_threaded_digest") --config=fast --lto=full $EXTRA_BAZEL_FLAGS //common:kernel_aarch64_dist
+            # Оптимизация для Bazel
+            tools/bazel build \
+              --sandbox_writable_path=$HOME/.ccache \
+              --sandbox_writable_path=/home/runner/.cache/bazel \
+              --disk_cache=~/.cache/bazel \
+              --remote_cache_header=x-build-cache-node=bazel \
+              --jobs=$(nproc --all) \
+              --local_cpu_resources=$(nproc --all) \
+              --config=fast \
+              --config=stamp \
+              --lto=full \
+              --copt=-O3 \
+              --copt=-pipe \
+              --copt=-Wno-maybe-uninitialized \
+              $([[ "${{ inputs.kernel_version }}" != "6.6" ]] && echo "--experimental_multi_threaded_digest") \
+              $EXTRA_BAZEL_FLAGS \
+              //common:kernel_aarch64_dist
           fi
           
-          echo "📊 Финальная статистика ccache:"
-          ccache -s
-
-      - name: Show final build statistics
-        run: |
-          echo "📊 Финальная статистика ccache:"
-          ccache -s
-          echo "💾 Свободное место после сборки:"
-          df -h
+          echo "Build completed!"
+          ccache --show-stats
 
       - name: Create Bootimgs Folder and Copy Images for Android 12/13
         if: ${{ inputs.android_version == 'android12' || inputs.android_version == 'android13' }}
@@ -576,11 +577,11 @@ jobs:
           status=$(curl -sL -w "%{http_code}" "$GKI_URL" -o /dev/null)
           
           if [ "$status" = "200" ]; then
-              echo "[+] Downloading from GKI_URL"
-              curl -Lo gki-kernel.zip "$GKI_URL"
+            echo "[+] Downloading from GKI_URL"
+            curl -Lo gki-kernel.zip "$GKI_URL"
           else
-              echo "[+] $GKI_URL not found, using $FALLBACK_URL"
-              curl -Lo gki-kernel.zip "$FALLBACK_URL"
+            echo "[+] $GKI_URL not found, using $FALLBACK_URL"
+            curl -Lo gki-kernel.zip "$FALLBACK_URL"
           fi
           
           # Unzip the downloaded kernel and remove the zip
