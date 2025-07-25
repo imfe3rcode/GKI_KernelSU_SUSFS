@@ -465,6 +465,9 @@ jobs:
           export CCACHE_EXEC=/usr/bin/ccache
           export CCACHE_DIR="${{ env.CCACHE_DIR }}"
           
+          # Создаем символическую ссылку для Bazel
+          ln -sf "${{ env.CCACHE_DIR }}" $HOME/.ccache
+          
           # Очистка перед сборкой для стабильности
           echo "Preparing clean build environment..."
           find . -name "*.o" -delete 2>/dev/null || true
@@ -490,13 +493,18 @@ jobs:
               LD=ld.lld LLVM=1 -j$(nproc --all) || exit 1
           else
             # Оптимизация для Bazel
+            # Создаем директории для кешей
+            mkdir -p $HOME/.cache/bazel
+            mkdir -p $HOME/.ccache
+            
             tools/bazel build \
               --sandbox_writable_path=$HOME/.ccache \
+              --sandbox_writable_path=${{ env.CCACHE_DIR }} \
               --sandbox_writable_path=/home/runner/.cache/bazel \
-              --disk_cache=~/.cache/bazel \
+              --disk_cache=$HOME/.cache/bazel \
               --remote_cache_header=x-build-cache-node=bazel \
               --jobs=$(nproc --all) \
-              --local_cpu_resources=$(nproc --all) \
+              --local_resources=cpu=$(nproc --all) \
               --config=fast \
               --config=stamp \
               --lto=full \
