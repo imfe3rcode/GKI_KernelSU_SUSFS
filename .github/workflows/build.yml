@@ -55,6 +55,8 @@ jobs:
           remove-swapfile: 'true'        # Frees ~4 GB
           remove-cached-tools: 'false'   # Avoid unless confirmed safe
           verbose: 'true'                # Enable detailed logging
+
+      - name: Ensure ccache Directory
         run: |
           # Защитить директорию ccache
           if [ -d "$CCACHE_DIR" ]; then
@@ -247,7 +249,6 @@ jobs:
           
           echo "Применение патчей SUSFS..."
           
-          # Копирование патчей SUSFS
           cp -v ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch ./common/
           cd common
           patch -p1 --forward < 50_add_susfs_in_gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch
@@ -354,7 +355,6 @@ jobs:
           cd "$CONFIG"
           echo "Добавление настроек конфигурации в gki_defconfig..."
           
-          # Добавить настройки KSU
           echo "CONFIG_KSU=y" | tee -a ./common/arch/arm64/configs/gki_defconfig
           
           if [ "${{ inputs.kernelsu_variant }}" == "NEXT" ] || [ "${{ inputs.kernelsu_variant }}" == "WILD" ]; then
@@ -366,7 +366,6 @@ jobs:
           echo "Переход в директорию конфигурации: $CONFIG..."
           cd "$CONFIG"
 
-          # Добавить настройки SUSFS
           echo "CONFIG_KSU_SUSFS=y" | tee -a ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y" | tee -a ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_KSU_SUSFS_SUS_PATH=y" | tee -a ./common/arch/arm64/configs/gki_defconfig
@@ -389,16 +388,11 @@ jobs:
             echo "CONFIG_KSU_SUSFS_SUS_SU=y" | tee -a ./common/arch/arm64/configs/gki_defconfig
           fi
 
-          # Добавить дополнительные настройки tmpfs
           echo "CONFIG_TMPFS_XATTR=y" | tee -a ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_TMPFS_POSIX_ACL=y" | tee -a ./common/arch/arm64/configs/gki_defconfig
-
-          # Добавить дополнительные настройки
           echo "CONFIG_IP_NF_TARGET_TTL=y" | tee -a ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_IP6_NF_TARGET_HL=y" | tee -a ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_IP6_NF_MATCH_HL=y" | tee -a ./common/arch/arm64/configs/gki_defconfig
-
-          # Добавить настройки BBR
           echo "CONFIG_TCP_CONG_ADVANCED=y" | tee -a ./common/arch/arm64/configs/gki_defconfig 
           echo "CONFIG_TCP_CONG_BBR=y" | tee -a ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_NET_SCH_FQ=y" | tee -a ./common/arch/arm64/configs/gki_defconfig
@@ -406,14 +400,11 @@ jobs:
           echo "CONFIG_TCP_CONG_WESTWOOD=n" | tee -a ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_TCP_CONG_HTCP=n" | tee -a ./common/arch/arm64/configs/gki_defconfig
 
-          # Удалить check_defconfig
           sed -i '2s/check_defconfig//' ./common/build.config.gki
 
       - name: Change Kernel Name
         run: |
           cd "$CONFIG"
-
-          # Получить текущую дату в нужном формате
           CURRENT_DATE=$(date -u +"%a %b %d %H:%M:%S UTC %Y")
 
           if [ -f "build/build.sh" ]; then
@@ -421,16 +412,9 @@ jobs:
               perl -0777 -pi -e 's/(.*)(echo "\$res")/$1echo "\$res-@NoFloresto+@mr_vokintos"/s' ./common/scripts/setlocalversion
               perl -pi -e "s{UTS_VERSION=\"\\\$\(echo \\\$UTS_VERSION \\\$CONFIG_FLAGS \\\$TIMESTAMP \| cut -b -\\\$UTS_LEN\)\"}{UTS_VERSION=\"#1 SMP PREEMPT $CURRENT_DATE\"}" ./common/scripts/mkcompile_h
           else
-              # Удалить -maybe-dirty
               perl -pi -e 's/-maybe-dirty//g' ./build/kernel/kleaf/impl/stamp.bzl
-              
-              # Установить имя ядра
               echo "CONFIG_LOCALVERSION=\"-@NoFloresto+@mr_vokintos\"" >> ./common/arch/arm64/configs/gki_defconfig
-
-              # Установить временную метку ядра
               perl -pi -e "s/build-timestamp = \\\$\(or \\\$\(KBUILD_BUILD_TIMESTAMP\), \\\$\(build-timestamp-auto\)\)/build-timestamp = \"$CURRENT_DATE\"/" ./common/init/Makefile
-
-              # Удалить экспорты ABI и ошибку
               rm -rf ./common/android/abi_gki_protected_exports_*
               perl -pi -e 's/^\s*"protected_exports_list"\s*:\s*"android\/abi_gki_protected_exports_aarch64",\s*$//;' ./common/BUILD.bazel
           fi
@@ -441,19 +425,16 @@ jobs:
           set -x
           cd "$CONFIG"
           
-          # Проверить наличие ccache
           if ! command -v ccache &> /dev/null; then
             echo "Ошибка: ccache не установлен" >&2
             exit 1
           fi
           
-          # Проверить наличие директории ccache
           if [ ! -d "$CCACHE_DIR" ]; then
             echo "Ошибка: директория $CCACHE_DIR не существует, создаем её" >&2
             mkdir -p "$CCACHE_DIR" || exit 1
           fi
           
-          # Запустить очистку в фоне
           echo "🧹 Запуск фоновой очистки места..."
           (
             sudo rm -rf /usr/share/dotnet &
@@ -465,7 +446,6 @@ jobs:
           ) &
           CLEANUP_PID=$!
 
-          # Настройка ccache для сборки
           export PATH="/usr/lib/ccache:$PATH"
           export CCACHE_COMPILERCHECK="%compiler% -dumpmachine; %compiler% -dumpversion"
           export CCACHE_NOHASHDIR="true"
@@ -490,7 +470,6 @@ jobs:
             tools/bazel build --sandbox_writable_path="$HOME/.ccache" --disk_cache="$HOME/.cache/bazel" $([[ "${{ inputs.kernel_version }}" != "6.6" ]] && echo "--experimental_multi_threaded_digest") --config=fast --lto=full $EXTRA_BAZEL_FLAGS //common:kernel_aarch64_dist
           fi
           
-          # Дождаться завершения очистки
           wait $CLEANUP_PID || true
           
           echo "📊 Финальная статистика ccache:"
