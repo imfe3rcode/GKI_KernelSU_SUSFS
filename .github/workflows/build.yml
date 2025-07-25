@@ -82,10 +82,14 @@ jobs:
 
       - name: Set up ccache
         run: |
-          mkdir -p ~/.ccaches ~/.cache/bazel
+          mkdir -p ~/.ccache ~/.cache/bazel
           ccache --version
-          ccache --max-size=2G
+          ccache --max-size=5G
           ccache --set-config=compression=true
+          ccache --set-config=compression_level=6
+          ccache --set-config=sloppiness=file_macro,locale,time_macros,include_file_mtime,include_file_ctime
+          ccache --set-config=hash_dir=false
+          ccache --set-config=hard_link=true
           echo "CCACHE_DIR=$HOME/.ccache" >> $GITHUB_ENV
 
       - name: Download toolchain
@@ -130,7 +134,7 @@ jobs:
           echo "Using branch for SUSFS: $SUSFS_BRANCH"
           git clone https://github.com/TheFloresto/AnyKernel3.git -b "$ANYKERNEL_BRANCH"
           git clone https://gitlab.com/simonpunk/susfs4ksu.git -b "$SUSFS_BRANCH"
-          git clone https://github.com/TheFloresto/kernel_patches.git
+          git clone https://github.com/TheFloresto/kernel_patches.git -b main
 
       - name: Initialize and Sync Kernel Source
         run: |
@@ -429,7 +433,7 @@ jobs:
           if [ -f "build/build.sh" ]; then
             LTO=full BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh CC="/usr/bin/ccache clang" || exit 1
           else
-            tools/bazel build --sandbox_writable_path=/home/runner/.ccaches --disk_cache=~/.cache/bazel $([[ "${{ inputs.kernel_version }}" != "6.6" ]] && echo "--experimental_multi_threaded_digest") --config=fast --lto=full $EXTRA_BAZEL_FLAGS  //common:kernel_aarch64_dist
+            tools/bazel build --sandbox_writable_path=/home/runner/.ccache --disk_cache=~/.cache/bazel $([[ "${{ inputs.kernel_version }}" != "6.6" ]] && echo "--experimental_multi_threaded_digest") --config=fast --lto=full $EXTRA_BAZEL_FLAGS  //common:kernel_aarch64_dist
           fi
           ccache --show-stats
 
