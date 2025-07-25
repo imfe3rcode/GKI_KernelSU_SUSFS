@@ -72,27 +72,24 @@ jobs:
           
       - name: Set CONFIG Environment Variable
         run: |
-          # Set CONFIG dynamically based on inputs values
           CONFIG="${{ inputs.android_version }}-${{ inputs.kernel_version }}-${{ inputs.sub_level }}"
-
-          # Set CONFIG as an environment variable for future steps
           echo "CONFIG=$CONFIG" >> $GITHUB_ENV
-
           echo "CONFIG set to: $CONFIG"
 
-      - name: Install ccache
-        run: sudo apt update && sudo apt install -y ccache
-
-      - name: Install additional dependencies
+      - name: Install dependencies
         run: |
+          sudo apt update
           sudo apt-get install -y --no-install-recommends \
             curl bison flex make binutils git perl gcc g++ python3 \
             python-is-python3 bc libssl-dev libelf-dev \
-            aria2 zip unzip libc6-dev build-essential
+            aria2 zip unzip ccache libc6-dev build-essential
+          
+          # Проверяем, что gcc установлен
+          gcc --version
+          g++ --version
 
       - name: Set up ccache with optimizations
         run: |
-          # Создание директории ccache для конкретной версии
           echo "CCACHE_DIR=$HOME/.ccache_${{ inputs.kernel_version }}.${{ inputs.sub_level }}" >> $GITHUB_ENV
           mkdir -p $HOME/.ccache_${{ inputs.kernel_version }}.${{ inputs.sub_level }}
           mkdir -p ~/.cache/bazel
