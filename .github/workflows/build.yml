@@ -76,6 +76,9 @@ jobs:
           echo "CONFIG=$CONFIG" >> $GITHUB_ENV
           echo "CONFIG set to: $CONFIG"
 
+      - name: Install ccache
+        run: sudo apt update && sudo apt install -y ccache
+
       - name: Set up ccache with optimizations
         run: |
           echo "CCACHE_DIR=$HOME/.ccache_${{ inputs.kernel_version }}.${{ inputs.sub_level }}" >> $GITHUB_ENV
