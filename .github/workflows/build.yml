@@ -487,33 +487,14 @@ jobs:
           echo "Building the kernel..."
           if [ -f "build/build.sh" ]; then
             # Оптимизация для build.sh
-            LTO=full BUILD_CONFIG=common/build.config.gki.aarch64 \
-              KCFLAGS="-O3 -pipe -Wno-maybe-uninitialized" \
-              build/build.sh CC="/usr/bin/ccache clang" \
-              LD=ld.lld LLVM=1 -j$(nproc --all) || exit 1
+            LTO=full BUILD_CONFIG=common/build.config.gki.aarch64 KCFLAGS="-O3 -pipe -Wno-maybe-uninitialized" build/build.sh CC="/usr/bin/ccache clang" LD=ld.lld LLVM=1 -j$(nproc --all) || exit 1
           else
             # Оптимизация для Bazel
             # Создаем директории для кешей
             mkdir -p $HOME/.cache/bazel
             mkdir -p $HOME/.ccache
             
-            tools/bazel build \
-              --sandbox_writable_path=$HOME/.ccache \
-              --sandbox_writable_path=${{ env.CCACHE_DIR }} \
-              --sandbox_writable_path=/home/runner/.cache/bazel \
-              --disk_cache=$HOME/.cache/bazel \
-              --remote_cache_header=x-build-cache-node=bazel \
-              --jobs=$(nproc --all) \
-              --local_resources=cpu=$(nproc --all) \
-              --config=fast \
-              --config=stamp \
-              --lto=full \
-              --copt=-O3 \
-              --copt=-pipe \
-              --copt=-Wno-maybe-uninitialized \
-              $([[ "${{ inputs.kernel_version }}" != "6.6" ]] && echo "--experimental_multi_threaded_digest") \
-              $EXTRA_BAZEL_FLAGS \
-              //common:kernel_aarch64_dist
+            tools/bazel build --sandbox_writable_path=$HOME/.ccache --sandbox_writable_path=${{ env.CCACHE_DIR }} --sandbox_writable_path=/home/runner/.cache/bazel --disk_cache=$HOME/.cache/bazel --remote_cache_header=x-build-cache-node=bazel --jobs=$(nproc --all) --local_cpu_resources=$(nproc --all) --config=fast --config=stamp --lto=full --copt=-O3 --copt=-pipe --copt=-Wno-maybe-uninitialized $([[ "${{ inputs.kernel_version }}" != "6.6" ]] && echo "--experimental_multi_threaded_digest") $EXTRA_BAZEL_FLAGS //common:kernel_aarch64_dist
           fi
           
           echo "Build completed!"
