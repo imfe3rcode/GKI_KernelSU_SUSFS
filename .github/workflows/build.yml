@@ -76,18 +76,6 @@ jobs:
           echo "CONFIG=$CONFIG" >> $GITHUB_ENV
           echo "CONFIG set to: $CONFIG"
 
-      - name: Install dependencies
-        run: |
-          sudo apt update
-          sudo apt-get install -y --no-install-recommends \
-            curl bison flex make binutils git perl gcc g++ python3 \
-            python-is-python3 bc libssl-dev libelf-dev \
-            aria2 zip unzip ccache libc6-dev build-essential
-          
-          # Проверяем, что gcc установлен
-          gcc --version
-          g++ --version
-
       - name: Set up ccache with optimizations
         run: |
           echo "CCACHE_DIR=$HOME/.ccache_${{ inputs.kernel_version }}.${{ inputs.sub_level }}" >> $GITHUB_ENV
@@ -363,6 +351,7 @@ jobs:
           echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y" | tee -a ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_KSU_SUSFS_SUS_KSTAT=y" | tee -a ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_KSU_SUSFS_SUS_OVERLAYFS=n" | tee -a ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_OVERLAY_FS=y" | tee -a ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_KSU_SUSFS_TRY_UMOUNT=y" | tee -a ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y" | tee -a ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_KSU_SUSFS_SPOOF_UNAME=y" | tee -a ./common/arch/arm64/configs/gki_defconfig
@@ -428,15 +417,6 @@ jobs:
           set -e
           set -x
           cd "$CONFIG"
-          
-          # Оптимизация переменных окружения для ccache
-          export PATH="/usr/bin/ccache:$PATH"
-          export USE_CCACHE=1
-          export CCACHE_EXEC=/usr/bin/ccache
-          export CCACHE_DIR="${{ env.CCACHE_DIR }}"
-          
-          # Создаем символическую ссылку для Bazel
-          ln -sf "${{ env.CCACHE_DIR }}" $HOME/.ccache
 
           echo "Checking kernel version..."
           if [[ "$CONFIG" == *"6.6"* ]]; then
@@ -451,49 +431,9 @@ jobs:
 
           echo "Building the kernel..."
           if [ -f "build/build.sh" ]; then
-            LTO=full BUILD_CONFIG=common/build.config.gki.aarch64 \
-              KCFLAGS="-O3 -pipe -Wno-maybe-uninitialized" \
-              build/build.sh \
-              CC="/usr/bin/ccache clang" \
-              HOSTCC="gcc" \
-              HOSTLD="ld" \
-              LD=ld.lld \
-              LLVM=1 \
-              -j$(nproc --all) || exit 1
+            LTO=full BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh CC="/usr/bin/ccache clang" || exit 1
           else
-            # Настройка переменных окружения для Bazel
-            export HOSTCC=gcc
-            export HOSTLD=ld
-            export HOSTCXX=g++
-            
-            # Принудительное отключение hermetic toolchain
-            echo "build --define=HERMETIC_CC_TOOLCHAIN_ENABLED=false" >> .bazelrc
-            echo "build --host_force_python=PY3" >> .bazelrc
-            
-            tools/bazel build \
-              --sandbox_writable_path=${{ env.CCACHE_DIR }} \
-              --sandbox_writable_path=$HOME/.ccache \
-              --sandbox_writable_path=$HOME/.cache/bazel \
-              --disk_cache=$HOME/.cache/bazel \
-              --define=HERMETIC_CC_TOOLCHAIN_ENABLED=false \
-              --action_env=HOSTCC=gcc \
-              --action_env=HOSTLD=ld \
-              --action_env=HOSTCXX=g++ \
-              --host_action_env=HOSTCC=gcc \
-              --host_action_env=HOSTLD=ld \
-              --host_action_env=HOSTCXX=g++ \
-              --host_copt=-I/usr/include \
-              --host_linkopt=-L/usr/lib/x86_64-linux-gnu \
-              --jobs=$(nproc --all) \
-              --local_cpu_resources=$(nproc --all) \
-              --config=fast \
-              --lto=full \
-              --copt=-O3 \
-              --copt=-pipe \
-              --copt=-Wno-maybe-uninitialized \
-              $([[ "${{ inputs.kernel_version }}" != "6.6" ]] && echo "--experimental_multi_threaded_digest") \
-              $EXTRA_BAZEL_FLAGS \
-              //common:kernel_aarch64_dist
+            tools/bazel build --sandbox_writable_path="$CCACHE_DIR" --disk_cache=~/.cache/bazel $([[ "${{ inputs.kernel_version }}" != "6.6" ]] && echo "--experimental_multi_threaded_digest") --config=fast --lto=full $EXTRA_BAZEL_FLAGS  //common:kernel_aarch64_dist
           fi
           ccache --show-stats
 
