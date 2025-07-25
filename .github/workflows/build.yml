@@ -83,13 +83,20 @@ jobs:
       - name: Install ccache
         run: sudo apt update && sudo apt install -y ccache
 
+      - name: Install additional dependencies
+        run: |
+          sudo apt-get install -y --no-install-recommends \
+            curl bison flex make binutils git perl gcc g++ python3 \
+            python-is-python3 bc libssl-dev libelf-dev \
+            aria2 zip unzip libc6-dev build-essential
+
       - name: Set up ccache with optimizations
         run: |
           # Создание директории ccache для конкретной версии
           echo "CCACHE_DIR=$HOME/.ccache_${{ inputs.kernel_version }}.${{ inputs.sub_level }}" >> $GITHUB_ENV
           mkdir -p $HOME/.ccache_${{ inputs.kernel_version }}.${{ inputs.sub_level }}
           mkdir -p ~/.cache/bazel
-          
+
           # Оптимизированная конфигурация ccache
           ccache --version
           ccache --max-size=5G
@@ -462,17 +469,24 @@ jobs:
             export HOSTLD=ld
             export HOSTCXX=g++
             
+            # Принудительное отключение hermetic toolchain
+            echo "build --define=HERMETIC_CC_TOOLCHAIN_ENABLED=false" >> .bazelrc
+            echo "build --host_force_python=PY3" >> .bazelrc
+            
             tools/bazel build \
               --sandbox_writable_path=${{ env.CCACHE_DIR }} \
               --sandbox_writable_path=$HOME/.ccache \
               --sandbox_writable_path=$HOME/.cache/bazel \
               --disk_cache=$HOME/.cache/bazel \
+              --define=HERMETIC_CC_TOOLCHAIN_ENABLED=false \
               --action_env=HOSTCC=gcc \
               --action_env=HOSTLD=ld \
               --action_env=HOSTCXX=g++ \
               --host_action_env=HOSTCC=gcc \
               --host_action_env=HOSTLD=ld \
               --host_action_env=HOSTCXX=g++ \
+              --host_copt=-I/usr/include \
+              --host_linkopt=-L/usr/lib/x86_64-linux-gnu \
               --jobs=$(nproc --all) \
               --local_cpu_resources=$(nproc --all) \
               --config=fast \
