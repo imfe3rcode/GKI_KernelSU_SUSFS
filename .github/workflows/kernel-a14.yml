@@ -1,3 +1,9 @@
+name: Build Kernel - A14
+
+permissions:
+  contents: write  # Allow writing to repository contents
+  actions: write   # Allows triggering actions
+
 on:
   workflow_call:
     inputs:
