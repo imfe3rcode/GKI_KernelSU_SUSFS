@@ -1,9 +1,3 @@
-name: Build Kernel - A12
-
-permissions:
-  contents: write  # Allow writing to repository contents
-  actions: write   # Allows triggering actions
-
 on:
   workflow_call:
     inputs:
@@ -17,6 +11,10 @@ on:
         required: false
         type: string
         default: ""
+      kpm_enable:
+        required: true
+        type: string
+        default: 'true'
 
 jobs:
   build-kernels-a12:
@@ -65,3 +63,5 @@ jobs:
       kernelsu_variant: ${{ inputs.kernelsu_variant }}
       kernelsu_branch: ${{ inputs.kernelsu_branch }}
       kernelsu_branch_other: ${{ inputs.kernelsu_branch_other || '' }}
+      kpm_enable: ${{ inputs.kpm_enable }}
+      
