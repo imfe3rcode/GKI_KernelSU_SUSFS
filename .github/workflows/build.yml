@@ -30,6 +30,10 @@ on:
       revision:
         required: false
         type: string
+      kpm_enable:
+        required: true
+        type: string
+        default: 'true'
         
 
 jobs:
@@ -361,12 +365,11 @@ jobs:
           if [ "${{ inputs.kernelsu_variant }}" == "SukiSU" ]; then
             if [ "${{ inputs.kpm_enable }}" == "true" ]; then
               echo "CONFIG_KPM=y" | tee -a ./common/arch/arm64/configs/gki_defconfig
-            
-            if [ "${{ inputs.kernelsu_variant }}" == "SukiSU" ]; then
+            fi
             echo "CONFIG_KSU_MANUAL_HOOK=y" | tee -a ./common/arch/arm64/configs/gki_defconfig
           fi
 
-            if [ "${{ inputs.kernelsu_variant }}" == "NEXT" ] || [ "${{ inputs.kernelsu_variant }}" == "WILD" ]; then
+          if [ "${{ inputs.kernelsu_variant }}" == "NEXT" ] || [ "${{ inputs.kernelsu_variant }}" == "WILD" ]; then
             echo "CONFIG_KSU_KPROBES_HOOK=n" | tee -a ./common/arch/arm64/configs/gki_defconfig
           fi
 
@@ -462,10 +465,11 @@ jobs:
           fi
 
           echo "Setting LTO based on kpm_enable..."
-          if [ "${{ inputs.kpm_enable }}" == "false" ]; then
-            LTO_FLAG="full"
-          else
-            LTO_FLAG="thin"
+          LTO_FLAG="full"  # Default to full LTO
+          if [ "${{ inputs.kernelsu_variant }}" == "SukiSU" ]; then
+            if [ "${{ inputs.kpm_enable }}" == "true" ]; then
+              LTO_FLAG="thin"
+            fi
           fi
 
           echo "Building the kernel with LTO=$LTO_FLAG..."
@@ -479,26 +483,26 @@ jobs:
       - name: Patch Image File for Android 12 and 13 (SukiSU only)
         if: ${{ inputs.kpm_enable == 'true' && inputs.kernelsu_variant == 'SukiSU' && (inputs.android_version == 'android12' || inputs.android_version == 'android13') }}
         run: |
-            echo "Patching Image file..."
-            cd "$CONFIG/out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist"
-            curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU_patch/refs/heads/main/kpm/patch_linux" -o patch
-            chmod 777 patch
-            ./patch
-            rm -rf Image
-            mv oImage Image
-            cd ../../../..
+          echo "Patching Image file..."
+          cd "$CONFIG/out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist"
+          curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU_patch/refs/heads/main/kpm/patch_linux" -o patch
+          chmod 777 patch
+          ./patch
+          rm -rf Image
+          mv oImage Image
+          cd ../../../..
 
       - name: Patch Image File for Android 14 and 15 (SukiSU only)
         if: ${{ inputs.kpm_enable == 'true' && inputs.kernelsu_variant == 'SukiSU' && (inputs.android_version == 'android14' || inputs.android_version == 'android15') }}
         run: |
-            echo "Patching Image file..."
-            cd "$CONFIG/bazel-bin/common/kernel_aarch64/"
-            curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU_patch/refs/heads/main/kpm/patch_linux" -o patch
-            chmod 777 patch
-            ./patch
-            rm -rf Image
-            mv oImage Image
-            cd ../../..
+          echo "Patching Image file..."
+          cd "$CONFIG/bazel-bin/common/kernel_aarch64/"
+          curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU_patch/refs/heads/main/kpm/patch_linux" -o patch
+          chmod 777 patch
+          ./patch
+          rm -rf Image
+          mv oImage Image
+          cd ../../..
 
       - name: Create Bootimgs Folder and Copy Images for Android 12/13
         if: ${{ inputs.android_version == 'android12' || inputs.android_version == 'android13' }}
