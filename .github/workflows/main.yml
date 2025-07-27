@@ -36,6 +36,11 @@ on:
         required: true
         type: boolean
         default: false
+      include_sukisu:
+        description: 'Include SukiSU?'
+        required: true
+        type: boolean
+        default: false
       kernelsu_branch:
         description: "Choose ksu branch"
         required: true
@@ -50,6 +55,14 @@ on:
         required: false
         type: string
         default: ""
+      kpm_enable:
+        description: 'Whether to enable KPM (may slightly increase power consumption; disable for full LTO)'
+        required: true
+        type: choice
+        default: 'true'
+        options:
+          - 'true'
+          - 'false'
 
 jobs:
   notify:
@@ -81,6 +94,7 @@ jobs:
           [[ "${{ inputs.include_ksu }}" == "true" ]] && VARIANTS+=("\"KSU\"")
           [[ "${{ inputs.include_next }}" == "true" ]] && VARIANTS+=("\"NEXT\"")
           [[ "${{ inputs.include_mksu }}" == "true" ]] && VARIANTS+=("\"MKSU\"")
+          [[ "${{ inputs.include_sukisu }}" == "true" ]] && VARIANTS+=("\"SukiSU\"")
           echo "matrix={\"kernelsu_variant\": [$(IFS=,; echo "${VARIANTS[*]}")]}" >> $GITHUB_OUTPUT
 
   build-kernels-a12:
@@ -94,6 +108,7 @@ jobs:
       kernelsu_variant: ${{ matrix.kernelsu_variant }}
       kernelsu_branch: ${{ inputs.kernelsu_branch }}
       kernelsu_branch_other: ${{ inputs.kernelsu_branch_other }}
+      kpm_enable: ${{ inputs.kpm_enable }}
 
   build-kernels-a13:
     needs: set-matrix
@@ -106,6 +121,7 @@ jobs:
       kernelsu_variant: ${{ matrix.kernelsu_variant }}
       kernelsu_branch: ${{ inputs.kernelsu_branch }}
       kernelsu_branch_other: ${{ inputs.kernelsu_branch_other }}
+      kpm_enable: ${{ inputs.kpm_enable }}
 
   build-kernels-a14:
     needs: set-matrix
@@ -118,6 +134,7 @@ jobs:
       kernelsu_variant: ${{ matrix.kernelsu_variant }}
       kernelsu_branch: ${{ inputs.kernelsu_branch }}
       kernelsu_branch_other: ${{ inputs.kernelsu_branch_other }}
+      kpm_enable: ${{ inputs.kpm_enable }}
 
   build-kernels-a15:
     needs: set-matrix
@@ -130,6 +147,7 @@ jobs:
       kernelsu_variant: ${{ matrix.kernelsu_variant }}
       kernelsu_branch: ${{ inputs.kernelsu_branch }}
       kernelsu_branch_other: ${{ inputs.kernelsu_branch_other }}
+      kpm_enable: ${{ inputs.kpm_enable }}
 
   release:
     if: ${{ inputs.release_type == 'Release' || inputs.release_type == 'Pre-Release' }}
@@ -142,7 +160,6 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       RELEASE_NAME: "GKI Kernels With WildKSU & SUSFS v1.5.9"
-      RELEASE_BODY:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -202,18 +219,18 @@ jobs:
 
       - name: Generate and Create New Tag
         run: |
-            LATEST_TAG=$(gh api repos/${{ github.repository }}/tags --jq '.[0].name')
-            if [ -z "$LATEST_TAG" ]; then
-              LATEST_TAG="v1.5.9-r0"
-            fi
-            
-            NEW_TAG=$(echo "$LATEST_TAG" | awk -F'-r' '{suffix=$2; if (!suffix) suffix=0; suffix++; printf "%s-r%d", $1, suffix}')
-    
-            echo "New tag: $NEW_TAG"
-            echo "NEW_TAG=${NEW_TAG}" >> $GITHUB_ENV
+          LATEST_TAG=$(gh api repos/${{ github.repository }}/tags --jq '.[0].name')
+          if [ -z "$LATEST_TAG" ]; then
+            LATEST_TAG="v1.5.9-r0"
+          fi
+          
+          NEW_TAG=$(echo "$LATEST_TAG" | awk -F'-r' '{suffix=$2; if (!suffix) suffix=0; suffix++; printf "%s-r%d", $1, suffix}')
+  
+          echo "New tag: $NEW_TAG"
+          echo "NEW_TAG=${NEW_TAG}" >> $GITHUB_ENV
 
-            git tag $NEW_TAG
-            git push origin $NEW_TAG
+          git tag $NEW_TAG
+          git push origin $NEW_TAG
 
       - name: Download Artifacts
         uses: actions/download-artifact@v4
@@ -225,6 +242,7 @@ jobs:
           cat << 'EOF' > release_body.md
           
           Branch type for KSU: ${{ inputs.kernelsu_branch }}
+          KPM Enabled: ${{ inputs.kpm_enable }}
           Wild Current Kernel Tag: ${{ env.NEW_TAG }}
       
           Features:
@@ -237,11 +255,10 @@ jobs:
           -> Futile Maphide for jit-zygote-cache Detections
           -> Wireguard Support
           -> BBR Support
-          -> KPM support
-          -> LTO = thin
+          $([[ "${{ inputs.kpm_enable }}" == "true" ]] && echo "-> KPM support")
       
           Notes:
-          -> Wild KSU & KernelSU-Next, SUS SU Mode 2 will show as disabled or not compatble due to non-kprobe hooks and is not needed anymore!
+          -> Wild KSU & KernelSU-Next, SUS SU Mode 2 will show as disabled or not compatible due to non-kprobe hooks and is not needed anymore!
           -> Official Kernel Flasher is broken with latest susfs, try https://github.com/fatalcoder524/KernelFlasher/ or https://github.com/libxzr/HorizonKernelFlasher!
       
           Module: 
@@ -276,7 +293,7 @@ jobs:
         with:
           tag_name: ${{ env.NEW_TAG }}
           prerelease: ${{ inputs.release_type == 'Pre-Release' }}
-          files: ""
+          files: ./downloaded-artifacts/*-kernel-*/*
           name: ${{ env.RELEASE_NAME }}
           body_path: release_body.md
 
@@ -307,3 +324,4 @@ jobs:
             ✏️ *Commit:* [${{ github.sha }}](https://github.com/${{ github.repository }}/commit/${{ github.sha }})  
             [🔗 View GitHub Release](https://github.com/${{ github.repository }}/releases/tag/${{ env.NEW_TAG }})" \
             -F parse_mode="Markdown"
+            
