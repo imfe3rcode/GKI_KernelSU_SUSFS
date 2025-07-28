@@ -1,4 +1,4 @@
-name: Build GKI
+name: Start building
 
 permissions:
   contents: write
@@ -16,48 +16,18 @@ on:
           - Pre-Release
           - Release
         default: Pre-Release
-      # Android version selection
-      include_a12:
-        description: 'Build Android 12?'
+      # Android versions (combined into one multi-select)
+      android_versions:
+        description: 'Android versions to build (comma-separated: a12,a13,a14,a15)'
         required: true
-        type: boolean
-        default: true
-      include_a13:
-        description: 'Build Android 13?'
+        type: string
+        default: 'a12,a13,a14,a15'
+      # Kernel variants (combined into one multi-select)
+      kernel_variants:
+        description: 'Kernel variants to build (comma-separated: wild,ksu,next,mksu)'
         required: true
-        type: boolean
-        default: true
-      include_a14:
-        description: 'Build Android 14?'
-        required: true
-        type: boolean
-        default: true
-      include_a15:
-        description: 'Build Android 15?'
-        required: true
-        type: boolean
-        default: true
-      # Kernel variant selection
-      include_wild:
-        description: 'Include WILD?'
-        required: true
-        type: boolean
-        default: false
-      include_ksu:
-        description: 'Include KSU?'
-        required: true
-        type: boolean
-        default: false
-      include_next:
-        description: 'Include NEXT?'
-        required: true
-        type: boolean
-        default: true
-      include_mksu:
-        description: 'Include MKSU?'
-        required: true
-        type: boolean
-        default: false
+        type: string
+        default: 'next'
       kernelsu_branch:
         description: "Choose ksu branch"
         required: true
@@ -87,7 +57,8 @@ jobs:
             📦 *Repository:* [${{ github.repository }}](https://github.com/${{ github.repository }})
             🗂️ *Branch:* ${{ github.ref_name }}
             ✏️ *Commit:* [${{ github.sha }}](https://github.com/${{ github.repository }}/commit/${{ github.sha }})
-            🎯 *Android Versions:* $(echo 'A12: ${{ inputs.include_a12 }}, A13: ${{ inputs.include_a13 }}, A14: ${{ inputs.include_a14 }}, A15: ${{ inputs.include_a15 }}')
+            🎯 *Android Versions:* ${{ inputs.android_versions }}
+            🔧 *Kernel Variants:* ${{ inputs.kernel_variants }}
             [🔗 View GitHub Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})" \
             -F parse_mode="Markdown"
             
@@ -100,14 +71,20 @@ jobs:
       - id: set-matrix
         run: |
           VARIANTS=()
-          [[ "${{ inputs.include_wild }}" == "true" ]] && VARIANTS+=("\"WILD\"")
-          [[ "${{ inputs.include_ksu }}" == "true" ]] && VARIANTS+=("\"KSU\"")
-          [[ "${{ inputs.include_next }}" == "true" ]] && VARIANTS+=("\"NEXT\"")
-          [[ "${{ inputs.include_mksu }}" == "true" ]] && VARIANTS+=("\"MKSU\"")
+          IFS=',' read -ra VARIANT_ARRAY <<< "${{ inputs.kernel_variants }}"
+          for variant in "${VARIANT_ARRAY[@]}"; do
+            variant=$(echo "$variant" | tr '[:lower:]' '[:upper:]' | xargs)
+            case "$variant" in
+              "WILD") VARIANTS+=("\"WILD\"") ;;
+              "KSU") VARIANTS+=("\"KSU\"") ;;
+              "NEXT") VARIANTS+=("\"NEXT\"") ;;
+              "MKSU") VARIANTS+=("\"MKSU\"") ;;
+            esac
+          done
           echo "matrix={\"kernelsu_variant\": [$(IFS=,; echo "${VARIANTS[*]}")]}" >> $GITHUB_OUTPUT
 
   build-kernels-a12:
-    if: ${{ inputs.include_a12 == true }}
+    if: contains(inputs.android_versions, 'a12')
     needs: set-matrix
     uses: ./.github/workflows/kernel-a12.yml
     secrets: inherit
@@ -120,7 +97,7 @@ jobs:
       kernelsu_branch_other: ${{ inputs.kernelsu_branch_other }}
 
   build-kernels-a13:
-    if: ${{ inputs.include_a13 == true }}
+    if: contains(inputs.android_versions, 'a13')
     needs: set-matrix
     uses: ./.github/workflows/kernel-a13.yml
     secrets: inherit
@@ -133,7 +110,7 @@ jobs:
       kernelsu_branch_other: ${{ inputs.kernelsu_branch_other }}
 
   build-kernels-a14:
-    if: ${{ inputs.include_a14 == true }}
+    if: contains(inputs.android_versions, 'a14')
     needs: set-matrix
     uses: ./.github/workflows/kernel-a14.yml
     secrets: inherit
@@ -146,7 +123,7 @@ jobs:
       kernelsu_branch_other: ${{ inputs.kernelsu_branch_other }}
 
   build-kernels-a15:
-    if: ${{ inputs.include_a15 == true }}
+    if: contains(inputs.android_versions, 'a15')
     needs: set-matrix
     uses: ./.github/workflows/kernel-a15.yml
     secrets: inherit
@@ -250,17 +227,38 @@ jobs:
         run: |
           # Generate Android versions list
           ANDROID_VERSIONS=""
-          [[ "${{ inputs.include_a12 }}" == "true" ]] && ANDROID_VERSIONS+="Android 12, "
-          [[ "${{ inputs.include_a13 }}" == "true" ]] && ANDROID_VERSIONS+="Android 13, "
-          [[ "${{ inputs.include_a14 }}" == "true" ]] && ANDROID_VERSIONS+="Android 14, "
-          [[ "${{ inputs.include_a15 }}" == "true" ]] && ANDROID_VERSIONS+="Android 15, "
+          IFS=',' read -ra VERSION_ARRAY <<< "${{ inputs.android_versions }}"
+          for version in "${VERSION_ARRAY[@]}"; do
+            version=$(echo "$version" | xargs)
+            case "$version" in
+              "a12") ANDROID_VERSIONS+="Android 12, " ;;
+              "a13") ANDROID_VERSIONS+="Android 13, " ;;
+              "a14") ANDROID_VERSIONS+="Android 14, " ;;
+              "a15") ANDROID_VERSIONS+="Android 15, " ;;
+            esac
+          done
           ANDROID_VERSIONS=${ANDROID_VERSIONS%, }
+          
+          # Generate kernel variants list
+          KERNEL_VARIANTS=""
+          IFS=',' read -ra VARIANT_ARRAY <<< "${{ inputs.kernel_variants }}"
+          for variant in "${VARIANT_ARRAY[@]}"; do
+            variant=$(echo "$variant" | xargs)
+            case "$variant" in
+              "wild") KERNEL_VARIANTS+="Wild KSU, " ;;
+              "ksu") KERNEL_VARIANTS+="KernelSU, " ;;
+              "next") KERNEL_VARIANTS+="KernelSU-Next, " ;;
+              "mksu") KERNEL_VARIANTS+="5ec1cff's KSU, " ;;
+            esac
+          done
+          KERNEL_VARIANTS=${KERNEL_VARIANTS%, }
           
           cat << EOF > release_body.md
           
           Branch type for KSU: ${{ inputs.kernelsu_branch }}
           Wild Current Kernel Tag: ${{ env.NEW_TAG }}
           Built for Android versions: ${ANDROID_VERSIONS}
+          Kernel variants: ${KERNEL_VARIANTS}
       
           Features:
           -> Wild KSU Kernels & Others
@@ -329,13 +327,6 @@ jobs:
             
       - name: Send Telegram Notification
         run: |
-          # Generate Android versions list for notification
-          ANDROID_VERSIONS=""
-          [[ "${{ inputs.include_a12 }}" == "true" ]] && ANDROID_VERSIONS+="A12 "
-          [[ "${{ inputs.include_a13 }}" == "true" ]] && ANDROID_VERSIONS+="A13 "
-          [[ "${{ inputs.include_a14 }}" == "true" ]] && ANDROID_VERSIONS+="A14 "
-          [[ "${{ inputs.include_a15 }}" == "true" ]] && ANDROID_VERSIONS+="A15 "
-          
           curl -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
             -F chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
             -F message_thread_id="${{ secrets.TELEGRAM_MESSAGE_THREAD_ID }}" \
@@ -344,6 +335,7 @@ jobs:
             📦 *Repository:* [${{ github.repository }}](https://github.com/${{ github.repository }})  
             🗂️ *Branch:* ${{ github.ref_name }}  
             ✏️ *Commit:* [${{ github.sha }}](https://github.com/${{ github.repository }}/commit/${{ github.sha }})
-            🎯 *Built for:* ${ANDROID_VERSIONS}
+            🎯 *Android versions:* ${{ inputs.android_versions }}
+            🔧 *Kernel variants:* ${{ inputs.kernel_variants }}
             [🔗 View GitHub Release](https://github.com/${{ github.repository }}/releases/tag/${{ env.NEW_TAG }})" \
             -F parse_mode="Markdown"
