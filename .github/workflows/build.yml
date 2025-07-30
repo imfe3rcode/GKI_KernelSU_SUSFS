@@ -52,7 +52,7 @@ jobs:
           remove-large-packages: 'true'  # Frees ~3.1 GB
           remove-swapfile: 'true'        # Frees ~4 GB
           remove-cached-tools: 'false'   # Avoid unless confirmed safe
-          verbose: 'false'                # Enable detailed logging
+          verbose: 'true'                # Enable detailed logging
 
       - name: Setup SWAP
         run: |
@@ -360,6 +360,22 @@ jobs:
           echo "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y" | tee -a ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y" | tee -a ./common/arch/arm64/configs/gki_defconfig
 
+          # Disable kernel logging options completely
+          echo "CONFIG_PRINTK=n" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_EARLY_PRINTK=n" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_DEBUG_KERNEL=n" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_DYNAMIC_DEBUG=n" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_LOG_BUF_SHIFT=12" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_AUDIT=n" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_AUDITSYSCALL=n" >> ./common/arch/arm64/configs/gki_defconfig
+
+          # Disable tracing and profiling
+          echo "CONFIG_TRACING=n" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_FTRACE=n" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_FUNCTION_TRACER=n" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_STACKTRACE=n" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_DEBUG_INFO=n" >> ./common/arch/arm64/configs/gki_defconfig
+          
           if [ "${{ inputs.kernelsu_variant }}" == "NEXT" ] || [ "${{ inputs.kernelsu_variant }}" == "WILD" ]; then
             echo "CONFIG_KSU_SUSFS_SUS_SU=n" | tee -a ./common/arch/arm64/configs/gki_defconfig
           else
